@@ -1,0 +1,27 @@
+{
+  "name": "qualityguard-cli",
+  "version": "1.0.0",
+  "description": "QualityGuard CLI工具",
+  "main": "index.js",
+  "bin": {
+    "qg": "./bin/qg.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "commander": "^11.1.0",
+    "axios": "^1.6.2",
+    "chalk": "^4.1.2",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1"
+  },
+  "keywords": [
+    "testing",
+    "automation",
+    "cli"
+  ],
+  "author": "",
+  "license": "MIT"
+}
+
