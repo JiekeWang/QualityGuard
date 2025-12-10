@@ -74,3 +74,9 @@ build/
 Thumbs.db
 .DS_Store
 
+# SSL 证书（不要提交）
+nginx/ssl/*.pem
+nginx/ssl/*.key
+nginx/ssl/*.crt
+nginx/ssl/*.p12
+

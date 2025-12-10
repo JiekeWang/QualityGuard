@@ -1,0 +1,24 @@
+# Docker 和 Docker Compose 安装命令
+# 在服务器上直接执行以下命令
+
+# 1. 安装 Docker
+yum install -y docker
+systemctl start docker
+systemctl enable docker
+
+# 2. 安装 Docker Compose
+curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+chmod +x /usr/local/bin/docker-compose
+
+# 3. 验证安装
+docker --version
+docker-compose --version
+
+# 4. 如果上述命令失败，尝试使用 docker compose (插件版本)
+# 安装 docker-compose-plugin:
+yum install -y docker-compose-plugin
+
+# 然后使用:
+# docker compose build
+# docker compose up -d
+

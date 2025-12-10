@@ -33,13 +33,16 @@ app.include_router(api_router, prefix="/api/v1")
 @app.on_event("startup")
 async def startup_event():
     """应用启动时初始化"""
+    from app.core.redis_client import init_redis
     await init_db()
+    await init_redis()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """应用关闭时清理"""
-    pass
+    from app.core.redis_client import close_redis
+    await close_redis()
 
 
 @app.get("/")

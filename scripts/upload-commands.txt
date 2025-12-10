@@ -1,0 +1,27 @@
+# 上传项目到服务器的命令序列
+# 请按顺序执行，每次需要输入密码: 232629wh@
+
+# 1. 上传压缩包
+scp "D:\QualityGuard-deploy.zip" root@47.116.197.230:/root/
+# 输入密码: 232629wh@
+
+# 2. 在服务器上解压
+ssh root@47.116.197.230 "cd /root && unzip -o QualityGuard-deploy.zip -d QualityGuard && cd QualityGuard && mkdir -p nginx/ssl && ls -la"
+# 输入密码: 232629wh@
+
+# 3. 上传 SSL 证书
+scp "C:\Users\user\Downloads\21938898_zhihome.com.cn_nginx\zhihome.com.cn.pem" root@47.116.197.230:/root/QualityGuard/nginx/ssl/cert.pem
+# 输入密码: 232629wh@
+
+# 4. 上传私钥
+scp "C:\Users\user\Downloads\21938898_zhihome.com.cn_nginx\zhihome.com.cn.key" root@47.116.197.230:/root/QualityGuard/nginx/ssl/key.pem
+# 输入密码: 232629wh@
+
+# 5. 设置文件权限
+ssh root@47.116.197.230 "chmod 644 /root/QualityGuard/nginx/ssl/cert.pem && chmod 600 /root/QualityGuard/nginx/ssl/key.pem && ls -la /root/QualityGuard/nginx/ssl/"
+# 输入密码: 232629wh@
+
+# 6. 验证部署
+ssh root@47.116.197.230 "cd /root/QualityGuard && ls -la && docker-compose --version"
+# 输入密码: 232629wh@
+

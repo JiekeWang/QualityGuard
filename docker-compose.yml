@@ -1,9 +1,64 @@
 version: '3.8'
 
 services:
+  # Nginx 反向代理
+  nginx:
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: qualityguard-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - frontend_dist:/usr/share/nginx/html:ro
+    depends_on:
+      - backend
+      - frontend
+    restart: unless-stopped
+    networks:
+      - qualityguard-network
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: qualityguard-backend
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://qualityguard:qualityguard123@postgres:5432/qualityguard
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - RABBITMQ_URL=amqp://qualityguard:qualityguard123@rabbitmq:5672/
+      - MINIO_ENDPOINT=minio:9000
+    volumes:
+      - backend_uploads:/app/uploads
+      - backend_reports:/app/reports
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+      - minio
+    restart: unless-stopped
+    networks:
+      - qualityguard-network
+
+  # 前端服务（构建）
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: qualityguard-frontend
+    volumes:
+      - frontend_dist:/usr/share/nginx/html
+    restart: unless-stopped
+    networks:
+      - qualityguard-network
   # PostgreSQL数据库
   postgres:
-    image: postgres:14-alpine
+    image: registry.cn-hangzhou.aliyuncs.com/acs/postgres:14-alpine
     container_name: qualityguard-postgres
     environment:
       POSTGRES_DB: qualityguard
@@ -21,7 +76,7 @@ services:
 
   # Redis缓存
   redis:
-    image: redis:7-alpine
+    image: registry.cn-hangzhou.aliyuncs.com/acs/redis:7-alpine
     container_name: qualityguard-redis
     ports:
       - "6379:6379"
@@ -35,7 +90,7 @@ services:
 
   # RabbitMQ消息队列
   rabbitmq:
-    image: rabbitmq:3-management-alpine
+    image: registry.cn-hangzhou.aliyuncs.com/acs/rabbitmq:3-management-alpine
     container_name: qualityguard-rabbitmq
     environment:
       RABBITMQ_DEFAULT_USER: qualityguard
@@ -53,7 +108,7 @@ services:
 
   # MinIO对象存储
   minio:
-    image: minio/minio:latest
+    image: registry.cn-hangzhou.aliyuncs.com/acs/minio:latest
     container_name: qualityguard-minio
     environment:
       MINIO_ROOT_USER: qualityguard
@@ -75,8 +130,11 @@ volumes:
   redis_data:
   rabbitmq_data:
   minio_data:
+  backend_uploads:
+  backend_reports:
+  frontend_dist:
 
 networks:
-  default:
-    name: qualityguard-network
+  qualityguard-network:
+    driver: bridge
 
