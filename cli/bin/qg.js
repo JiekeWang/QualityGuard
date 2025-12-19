@@ -12,7 +12,7 @@ const executionCommands = require('./commands/execution')
 
 program
   .name('qg')
-  .description('QualityGuard CLI - 测试自动化平台命令行工具')
+  .description('QualityGuard CLI - 自动化测试平台命令行工具')
   .version(version)
 
 // 注册命令

@@ -4,15 +4,500 @@
   box-sizing: border-box;
 }
 
+html {
+  font-size: 14px;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: linear-gradient(135deg, #0f1419 0%, #1a1d29 100%);
+  background-attachment: fixed;
+  color: #e4e7eb;
+  font-size: 13px;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 
 #root {
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  line-height: 1.5;
+}
+
+/* 响应式字体大小 */
+@media (max-width: 1920px) {
+  html {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 1440px) {
+  html {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 1280px) {
+  html {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 1024px) {
+  html {
+    font-size: 12px;
+  }
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+}
+
+/* 页面内容容器样式 */
+.page-content-wrapper {
+  background: linear-gradient(135deg, #1e2329 0%, #252b3a 100%);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  min-height: calc(100vh - 120px);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* 为没有包装器的页面内容添加默认样式 */
+.ant-layout-content > div:first-child {
+  background: linear-gradient(135deg, #1e2329 0%, #252b3a 100%);
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(59, 130, 246, 0.1);
+  min-height: calc(100vh - 120px);
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+/* 响应式布局优化 */
+@media (max-width: 1920px) {
+  .page-content-wrapper,
+  .ant-layout-content > div:first-child {
+    padding: 16px;
+  }
+}
+
+@media (max-width: 1440px) {
+  .page-content-wrapper,
+  .ant-layout-content > div:first-child {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 1280px) {
+  .page-content-wrapper,
+  .ant-layout-content > div:first-child {
+    padding: 12px;
+  }
+}
+
+@media (max-width: 1024px) {
+  .page-content-wrapper,
+  .ant-layout-content > div:first-child {
+    padding: 10px;
+    border-radius: 6px;
+  }
+}
+
+/* 全局按钮样式优化 */
+.ant-btn {
+  font-size: 13px !important;
+  height: 32px !important;
+  padding: 4px 12px !important;
+  border-radius: 6px !important;
+  line-height: 1.5 !important;
+}
+
+.ant-btn-sm {
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 2px 10px !important;
+}
+
+.ant-btn-lg {
+  font-size: 14px !important;
+  height: 36px !important;
+  padding: 6px 16px !important;
+}
+
+/* 全局表格样式优化 */
+.ant-table {
+  font-size: 13px !important;
+}
+
+.ant-table-thead > tr > th {
+  font-size: 13px !important;
+  padding: 10px 12px !important;
+  font-weight: 600 !important;
+}
+
+.ant-table-tbody > tr > td {
+  font-size: 13px !important;
+  padding: 10px 12px !important;
+}
+
+/* 全局输入框样式优化 */
+.ant-input,
+.ant-input-password .ant-input,
+.ant-input-number-input {
+  font-size: 13px !important;
+  height: 32px !important;
+  padding: 4px 10px !important;
+}
+
+.ant-input-lg {
+  font-size: 14px !important;
+  height: 36px !important;
+  padding: 6px 12px !important;
+}
+
+.ant-input-sm {
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 2px 8px !important;
+}
+
+/* 全局选择框样式优化 */
+.ant-select-selector {
+  font-size: 13px !important;
+  height: 32px !important;
+  padding: 2px 10px !important;
+}
+
+.ant-select-lg .ant-select-selector {
+  font-size: 14px !important;
+  height: 36px !important;
+  padding: 4px 12px !important;
+}
+
+.ant-select-sm .ant-select-selector {
+  font-size: 12px !important;
+  height: 28px !important;
+  padding: 0 8px !important;
+}
+
+/* 登录页面标签页样式优化 */
+.ant-tabs-tab {
+  font-weight: 500 !important;
+  font-size: 13px !important;
+  padding: 8px 16px !important;
+  transition: all 0.3s ease !important;
+}
+
+.ant-tabs-tab:hover {
+  color: #667eea !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #667eea !important;
+  font-weight: 700 !important;
+}
+
+.ant-tabs-ink-bar {
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%) !important;
+  height: 3px !important;
+  border-radius: 2px !important;
+}
+
+/* 输入框文字颜色 - 确保清晰可见 */
+.ant-input,
+.ant-input-password .ant-input,
+.ant-input-number,
+.ant-input-number-input,
+textarea.ant-input {
+  color: #1f2937 !important;
+  font-weight: 500 !important;
+}
+
+.ant-input::placeholder,
+.ant-input-password .ant-input::placeholder,
+.ant-input-number-input::placeholder,
+textarea.ant-input::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+/* 输入框聚焦样式 */
+.ant-input:focus,
+.ant-input-focused {
+  border-color: #667eea !important;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1) !important;
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+.ant-input-password:focus,
+.ant-input-password-focused {
+  border-color: #667eea !important;
+  box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1) !important;
+  background-color: #ffffff !important;
+}
+
+.ant-input-password .ant-input {
+  background-color: #f9fafb !important;
+  color: #1f2937 !important;
+}
+
+.ant-input-password .ant-input:focus {
+  background-color: #ffffff !important;
+  color: #111827 !important;
+}
+
+/* Select 下拉框文字颜色 */
+.ant-select-selector {
+  color: #1f2937 !important;
+  background-color: #f9fafb !important;
+}
+
+.ant-select-selection-placeholder {
+  color: #9ca3af !important;
+}
+
+.ant-select-selection-item {
+  color: #1f2937 !important;
+  font-weight: 500 !important;
+}
+
+.ant-select-selection-search-input {
+  color: #1f2937 !important;
+}
+
+/* Select 下拉选项文字颜色 - 增强版 */
+.ant-select-dropdown,
+div[class*="ant-select-dropdown"] {
+  background-color: #ffffff !important;
+}
+
+.ant-select-item,
+.ant-select-item-option,
+div[class*="ant-select-item"],
+div[class*="ant-select-item-option"] {
+  color: #1f2937 !important;
+  background-color: #ffffff !important;
+}
+
+.ant-select-item-option-content,
+div[class*="ant-select-item-option-content"],
+span[class*="ant-select-item-option-content"] {
+  color: #1f2937 !important;
+}
+
+.ant-select-item-option-selected,
+div[class*="ant-select-item-option-selected"] {
+  background-color: rgba(59, 130, 246, 0.1) !important;
+  color: #111827 !important;
+  font-weight: 500 !important;
+}
+
+.ant-select-item-option-active,
+div[class*="ant-select-item-option-active"] {
+  background-color: rgba(59, 130, 246, 0.05) !important;
+  color: #111827 !important;
+}
+
+.ant-select-item-option-selected .ant-select-item-option-content,
+div[class*="ant-select-item-option-selected"] div[class*="ant-select-item-option-content"],
+div[class*="ant-select-item-option-selected"] span[class*="ant-select-item-option-content"] {
+  color: #111827 !important;
+  font-weight: 500 !important;
+}
+
+/* 确保所有下拉选项文字可见 */
+.ant-select-dropdown .ant-select-item,
+.ant-select-dropdown .ant-select-item-option,
+.ant-select-dropdown .ant-select-item-option-content {
+  color: #1f2937 !important;
+  -webkit-text-fill-color: #1f2937 !important;
+}
+
+/* TextArea 文字颜色 */
+.ant-input[type="textarea"],
+textarea.ant-input {
+  color: #1f2937 !important;
+}
+
+textarea.ant-input:focus {
+  color: #111827 !important;
+}
+
+/* InputNumber 文字颜色 */
+.ant-input-number-input {
+  color: #1f2937 !important;
+}
+
+.ant-input-number-input:focus {
+  color: #111827 !important;
+}
+
+/* Form 标签文字颜色 */
+.ant-form-item-label > label {
+  color: #e4e7eb !important;
+  font-weight: 500 !important;
+  font-size: 13px !important;
+}
+
+.ant-form-item {
+  margin-bottom: 16px !important;
+}
+
+.ant-form-item-label > label.ant-form-item-required::before {
+  color: #ef4444 !important;
+}
+
+/* Radio 文字颜色 */
+.ant-radio-wrapper {
+  color: #e4e7eb !important;
+}
+
+.ant-radio-wrapper-checked {
+  color: #3b82f6 !important;
+}
+
+.ant-radio-button-wrapper {
+  color: #e4e7eb !important;
+}
+
+.ant-radio-button-wrapper-checked {
+  color: #ffffff !important;
+}
+
+/* Modal 标题和内容文字颜色 */
+.ant-modal-title {
+  color: #e4e7eb !important;
+}
+
+.ant-modal-body {
+  color: #e4e7eb !important;
+}
+
+/* Tabs 文字颜色 */
+.ant-tabs-tab {
+  color: #9ca3af !important;
+}
+
+.ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #3b82f6 !important;
+}
+
+.ant-tabs-content-holder {
+  color: #e4e7eb !important;
+}
+
+/* 响应式表格优化 */
+.ant-table-wrapper {
+  overflow-x: auto;
+  width: 100%;
+}
+
+.ant-table {
+  min-width: 100%;
+}
+
+/* 响应式卡片优化 */
+.ant-card {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* 响应式Modal优化 */
+.ant-modal {
+  max-width: 90vw;
+}
+
+.ant-modal-content {
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.ant-modal-body {
+  max-height: calc(90vh - 120px);
+  overflow-y: auto;
+}
+
+/* 响应式布局容器 */
+.ant-layout {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+.ant-layout-content {
+  min-width: 0;
+  overflow-x: hidden;
+}
+
+/* 全局标题样式优化 */
+h1, h2, h3, h4, h5, h6 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 12px 0;
+  line-height: 1.5;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+h2 {
+  font-size: 18px;
+}
+
+h3 {
+  font-size: 16px;
+}
+
+h4 {
+  font-size: 14px;
+}
+
+/* 响应式菜单优化 */
+@media (max-width: 768px) {
+  .ant-layout-sider {
+    position: fixed !important;
+    height: 100vh;
+    z-index: 999;
+  }
+  
+  .ant-layout-content {
+    margin-left: 0 !important;
+  }
+  
+  h1 {
+    font-size: 18px;
+  }
+  
+  h2 {
+    font-size: 16px;
+  }
+  
+  h3 {
+    font-size: 14px;
+  }
 }
 

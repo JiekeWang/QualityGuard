@@ -369,3 +369,24 @@
 **最后更新**: 2025-01-27
 **框架版本**: v1.0.0
 
+---
+
+## 🔴 当前待解决问题（2024-01-XX）
+
+### 数据驱动配置表格显示问题
+
+**问题描述**: 数据驱动配置表格在构建后的JS文件中找不到相关代码，导致前端UI不显示表格编辑器。
+
+**详细文档**: 参见 `docs/DATA_DRIVER_TABLE_ISSUE.md`
+
+**已尝试方案**:
+1. ✅ 提取为独立组件 `DataDriverTable`
+2. ✅ 禁用代码优化（minify: false, treeshake: false）
+3. ✅ 强制单文件构建
+4. ✅ 添加调试标识
+
+**明天优先尝试**:
+1. 将 `DataDriverTable` 组件移到单独文件 (`frontend/src/components/DataDriverTable.tsx`)
+2. 完全禁用Vite优化配置
+3. 验证构建产物是否包含组件代码
+

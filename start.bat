@@ -1,6 +1,6 @@
 @echo off
 echo ==========================================
-echo QualityGuard 测试自动化平台启动脚本
+echo QualityGuard 自动化测试平台启动脚本
 echo ==========================================
 
 REM 检查Docker是否运行

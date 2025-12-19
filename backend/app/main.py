@@ -11,7 +11,7 @@ from app.core.database import init_db
 
 app = FastAPI(
     title="QualityGuard API",
-    description="测试自动化平台API",
+    description="自动化测试平台API",
     version="1.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",

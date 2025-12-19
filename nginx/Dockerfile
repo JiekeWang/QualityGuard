@@ -1,4 +1,4 @@
-FROM nginx:alpine
+FROM registry.cn-hangzhou.aliyuncs.com/acs/nginx:alpine
 
 # 复制配置文件
 COPY nginx.conf /etc/nginx/nginx.conf

@@ -82,7 +82,16 @@ async def get_current_user_info(
     current_user: User = Depends(get_current_active_user)
 ):
     """获取当前用户信息"""
-    return current_user
+    # 手动转换 datetime 为字符串
+    user_dict = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        "is_superuser": current_user.is_superuser,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+    }
+    return UserResponse(**user_dict)
 
 
 @router.post("/logout")

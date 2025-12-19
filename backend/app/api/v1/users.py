@@ -4,95 +4,135 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import List
-
 from app.core.database import get_db
-from app.core.dependencies import get_current_active_user, get_current_superuser
+from app.core.dependencies import get_current_active_user
 from app.models.user import User
 from app.schemas.auth import UserResponse, UserUpdate
-from app.core.security import get_password_hash
+from pydantic import BaseModel, EmailStr
+from typing import Optional
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[UserResponse])
-async def get_users(
-    skip: int = 0,
-    limit: int = 100,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_superuser)  # 只有超级用户可以查看所有用户
-):
-    """获取用户列表（需要超级用户权限）"""
-    stmt = select(User).offset(skip).limit(limit)
-    result = await db.execute(stmt)
-    users = result.scalars().all()
-    return users
+class UserProfileUpdate(BaseModel):
+    """用户个人信息更新模型"""
+    username: Optional[str] = None
+    email: Optional[EmailStr] = None
+    name: Optional[str] = None
+    bio: Optional[str] = None
+
+
+class PasswordUpdate(BaseModel):
+    """密码更新模型"""
+    current_password: str
+    new_password: str
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_current_user_info(
+async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user)
 ):
     """获取当前用户信息"""
-    return current_user
-
-
-@router.get("/{user_id}", response_model=UserResponse)
-async def get_user(
-    user_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """获取用户详情（只能查看自己的信息，除非是超级用户）"""
-    if user_id != current_user.id and not current_user.is_superuser:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问其他用户信息"
-        )
-    
-    stmt = select(User).where(User.id == user_id)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-    
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="用户不存在"
-        )
-    
-    return user
+    user_dict = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        "is_superuser": current_user.is_superuser,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+    }
+    return UserResponse(**user_dict)
 
 
 @router.put("/me", response_model=UserResponse)
-async def update_current_user(
-    user_update: UserUpdate,
+async def update_current_user_profile(
+    profile_update: UserProfileUpdate,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """更新当前用户信息"""
-    if user_update.email is not None:
-        # 检查邮箱是否已被其他用户使用
-        stmt = select(User).where(
-            User.email == user_update.email,
-            User.id != current_user.id
+    """更新当前用户个人信息"""
+    # 检查用户名是否已被使用
+    if profile_update.username and profile_update.username != current_user.username:
+        existing_user = await db.execute(
+            select(User).where(User.username == profile_update.username)
         )
-        result = await db.execute(stmt)
-        existing_user = result.scalar_one_or_none()
-        if existing_user:
+        if existing_user.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="用户名已被使用"
+            )
+        current_user.username = profile_update.username
+    
+    # 检查邮箱是否已被使用
+    if profile_update.email and profile_update.email != current_user.email:
+        existing_user = await db.execute(
+            select(User).where(User.email == profile_update.email)
+        )
+        if existing_user.scalar_one_or_none():
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="邮箱已被使用"
             )
-        current_user.email = user_update.email
+        current_user.email = profile_update.email
     
-    if user_update.password is not None:
-        current_user.hashed_password = get_password_hash(user_update.password)
-    
-    if user_update.is_active is not None and current_user.is_superuser:
-        # 只有超级用户可以修改自己的激活状态
-        current_user.is_active = user_update.is_active
+    # 更新其他字段（如果有扩展字段的话）
+    # 目前User模型只有username和email，其他字段需要扩展模型
     
     await db.commit()
     await db.refresh(current_user)
-    return current_user
+    
+    user_dict = {
+        "id": current_user.id,
+        "username": current_user.username,
+        "email": current_user.email,
+        "is_active": current_user.is_active,
+        "is_superuser": current_user.is_superuser,
+        "created_at": current_user.created_at.isoformat() if current_user.created_at else None
+    }
+    return UserResponse(**user_dict)
 
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+async def update_password(
+    password_update: PasswordUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """更新密码"""
+    from app.core.security import verify_password, get_password_hash
+    
+    # 验证当前密码
+    if not verify_password(password_update.current_password, current_user.hashed_password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="当前密码错误"
+        )
+    
+    # 更新密码
+    current_user.hashed_password = get_password_hash(password_update.new_password)
+    await db.commit()
+    
+    return None
+
+
+@router.get("/", response_model=list[UserResponse])
+async def get_users(
+    skip: int = 0,
+    limit: int = 100,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """获取用户列表（所有用户都可以查看）"""
+    result = await db.execute(select(User).offset(skip).limit(limit))
+    users = result.scalars().all()
+    return [
+        UserResponse(
+            id=user.id,
+            username=user.username,
+            email=user.email,
+            is_active=user.is_active,
+            is_superuser=user.is_superuser,
+            created_at=user.created_at.isoformat() if user.created_at else None
+        )
+        for user in users
+    ]

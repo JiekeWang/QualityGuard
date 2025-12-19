@@ -23,14 +23,22 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: false,
+    minify: false, // 暂时禁用压缩，便于调试
     // 确保构建时使用正确的 API 地址
     rollupOptions: {
+      treeshake: false, // 禁用tree-shaking，确保所有代码都被包含
       output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom'],
-          antd: ['antd'],
-        },
+        // 完全禁用代码分割，所有代码都在在一个文件中
+        manualChunks: undefined,
+        // preserveComments 不是有效的 Rollup 选项，已移除
+        // 注释会通过 minify: false 保留
       },
+    },
+    esbuild: {
+      // 禁用esbuild的优化
+      minifyIdentifiers: false,
+      minifySyntax: false,
+      minifyWhitespace: false,
     },
   },
 })

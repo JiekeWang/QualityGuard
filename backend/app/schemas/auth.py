@@ -1,7 +1,8 @@
 """
 认证相关的 Pydantic 模型
 """
-from pydantic import BaseModel, EmailStr, Field
+from datetime import datetime
+from pydantic import BaseModel, EmailStr, Field, field_serializer
 from typing import Optional
 
 
@@ -9,13 +10,13 @@ class UserRegister(BaseModel):
     """用户注册模型"""
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
     email: EmailStr = Field(..., description="邮箱")
-    password: str = Field(..., min_length=6, max_length=100, description="密码")
+    password: str = Field(..., min_length=6, max_length=72, description="密码（最长72个字符）")
 
 
 class UserLogin(BaseModel):
     """用户登录模型"""
     username: str = Field(..., description="用户名或邮箱")
-    password: str = Field(..., description="密码")
+    password: str = Field(..., max_length=72, description="密码（最长72个字符）")
 
 
 class Token(BaseModel):
@@ -37,7 +38,16 @@ class UserResponse(BaseModel):
     email: str
     is_active: bool
     is_superuser: bool
-    created_at: Optional[str] = None
+    created_at: Optional[datetime] = None
+    
+    @field_serializer('created_at')
+    def serialize_created_at(self, value: Optional[datetime]) -> Optional[str]:
+        """将 datetime 序列化为 ISO 格式字符串"""
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.isoformat()
+        return str(value) if value else None
     
     class Config:
         from_attributes = True
@@ -46,6 +56,6 @@ class UserResponse(BaseModel):
 class UserUpdate(BaseModel):
     """用户更新模型"""
     email: Optional[EmailStr] = None
-    password: Optional[str] = Field(None, min_length=6, max_length=100)
+    password: Optional[str] = Field(None, min_length=6, max_length=72, description="密码（最长72个字符）")
     is_active: Optional[bool] = None
 

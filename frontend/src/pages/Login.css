@@ -1,0 +1,176 @@
+/* 登录页面专用样式 - 确保优先级 */
+
+/* 确保 body 和 html 也是全屏 - 最高优先级 */
+body.login-page,
+html.login-page {
+  height: 100% !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  max-height: 100vh !important;
+  max-width: 100vw !important;
+}
+
+/* 确保 #root 也是全屏 */
+body.login-page #root,
+html.login-page #root {
+  height: 100% !important;
+  width: 100% !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  max-height: 100vh !important;
+  max-width: 100vw !important;
+}
+
+/* 确保所有可能的父容器也是全屏 */
+body.login-page > *,
+html.login-page > *,
+body.login-page #root > * {
+  max-height: 100vh !important;
+  max-width: 100vw !important;
+}
+
+/* 确保登录容器全屏且无滚动 */
+.login-container {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  min-width: 100vw !important;
+  min-height: 100vh !important;
+  max-width: 100vw !important;
+  max-height: 100vh !important;
+  overflow: hidden !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+  z-index: 0 !important;
+}
+
+/* 确保输入框文字颜色为白色 - 最高优先级 */
+.login-container .ant-input,
+.login-container .ant-input-password .ant-input,
+.login-container .ant-input-password input,
+.login-container input.ant-input,
+.login-container .ant-input-password .ant-input-password-input,
+.login-container .ant-input-password input[type="password"] {
+  color: #ffffff !important;
+  background-color: rgba(30, 35, 50, 0.7) !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* 确保密码输入框的所有可能选择器 */
+.login-container .ant-input-password > input,
+.login-container .ant-input-password-input,
+.login-container span.ant-input-password > input {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+.login-container .ant-input::placeholder,
+.login-container .ant-input-password .ant-input::placeholder,
+.login-container .ant-input-password input::placeholder {
+  color: rgba(255, 255, 255, 0.5) !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.5) !important;
+}
+
+.login-container .ant-input:focus,
+.login-container .ant-input-password .ant-input:focus,
+.login-container .ant-input-password input:focus,
+.login-container input.ant-input:focus {
+  color: #ffffff !important;
+  background-color: rgba(30, 35, 50, 0.85) !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* 确保输入时文字颜色也是白色 */
+.login-container .ant-input[value],
+.login-container .ant-input-password .ant-input[value],
+.login-container .ant-input-password input[value],
+.login-container .ant-input-password > input[value],
+.login-container .ant-input-password-input[value] {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* 确保密码输入框在任何状态下都是白色 */
+.login-container .ant-input-password input,
+.login-container .ant-input-password .ant-input-password-input {
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+
+/* 覆盖浏览器自动填充样式 - 最强优先级 */
+.login-container .ant-input:-webkit-autofill,
+.login-container .ant-input-password .ant-input:-webkit-autofill,
+.login-container .ant-input-password input:-webkit-autofill,
+.login-container input:-webkit-autofill,
+.login-container .ant-input-password > input:-webkit-autofill,
+.login-container .ant-input-password-input:-webkit-autofill,
+.login-container span.ant-input-password > input:-webkit-autofill {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  background-color: rgba(30, 35, 50, 0.7) !important;
+  background: rgba(30, 35, 50, 0.7) !important;
+  color: #ffffff !important;
+  caret-color: #ffffff !important;
+  transition: background-color 5000s ease-in-out 0s, background 5000s ease-in-out 0s !important;
+  -webkit-transition: background-color 5000s ease-in-out 0s, background 5000s ease-in-out 0s !important;
+}
+
+.login-container .ant-input:-webkit-autofill:hover,
+.login-container .ant-input-password .ant-input:-webkit-autofill:hover,
+.login-container .ant-input-password input:-webkit-autofill:hover,
+.login-container input:-webkit-autofill:hover,
+.login-container .ant-input-password > input:-webkit-autofill:hover {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  background-color: rgba(30, 35, 50, 0.7) !important;
+  background: rgba(30, 35, 50, 0.7) !important;
+}
+
+.login-container .ant-input:-webkit-autofill:focus,
+.login-container .ant-input-password .ant-input:-webkit-autofill:focus,
+.login-container .ant-input-password input:-webkit-autofill:focus,
+.login-container input:-webkit-autofill:focus,
+.login-container .ant-input-password > input:-webkit-autofill:focus {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.85) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.85) inset !important;
+  background-color: rgba(30, 35, 50, 0.85) !important;
+  background: rgba(30, 35, 50, 0.85) !important;
+  caret-color: #ffffff !important;
+}
+
+/* 针对所有可能的自动填充状态 */
+.login-container input:-webkit-autofill,
+.login-container input:-webkit-autofill:hover,
+.login-container input:-webkit-autofill:focus,
+.login-container input:-webkit-autofill:active {
+  -webkit-text-fill-color: #ffffff !important;
+  -webkit-box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  box-shadow: 0 0 0px 1000px rgba(30, 35, 50, 0.7) inset !important;
+  background-color: rgba(30, 35, 50, 0.7) !important;
+  background: rgba(30, 35, 50, 0.7) !important;
+  color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+

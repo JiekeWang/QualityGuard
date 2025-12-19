@@ -1,0 +1,5 @@
+Codes,DamageToothCount,DamageAreaCount,expected_WorkflowName,expected_PassedRules
+CI-Il-bony,1,1,咬合重建-弹窗提醒,"""RuleName"": ""4.符合弹窗提醒-II类骨性关系"",""Output"": ""{""Category"":""侧位片"",""Content"":""II类骨性关系""}"""
+CI-lll-bony,2,1,咬合重建-弹窗提醒,"""RuleName"": ""5.符合弹窗提醒-III类骨性关系"",""Output"": ""{""Category"":""侧位片"",""Content"":""III类骨性关系""}"""
+DI-5-tooth,5,3,咬合重建-弹窗提醒,"""RuleName"": ""6.符合弹窗提醒-5颗及以上缺牙"",""Output"": ""{""Category"":""缺牙""}"""
+
