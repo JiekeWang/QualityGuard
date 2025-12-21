@@ -3,13 +3,19 @@
 """
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status, Body
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_active_user
 from app.models.user import User
 from app.services.report_service import ReportService
+
+
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求模型"""
+    report_ids: List[int]
 
 router = APIRouter()
 service = ReportService()
@@ -72,4 +78,82 @@ async def export_report(
         "format": format,
         "content": content,
     }
+
+
+@router.delete("/batch", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_delete_reports(
+    request: BatchDeleteRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    批量删除测试报告
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import delete
+    from app.models.test_execution import TestExecution
+    
+    report_ids = request.report_ids
+    if not report_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供要删除的报告ID列表"
+        )
+    
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id.in_(report_ids))
+    )
+    await db.commit()
+
+
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    删除测试报告（实际上是删除对应的测试执行记录）
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import delete
+    from app.models.test_execution import TestExecution
+    
+    # 由于报告ID就是执行ID，直接删除执行记录
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id == report_id)
+    )
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="报告不存在"
+        )
+
+
+@router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    """
+    删除测试报告（实际上是删除对应的测试执行记录）
+    """
+    from fastapi import HTTPException
+    from sqlalchemy import delete
+    from app.models.test_execution import TestExecution
+    
+    # 由于报告ID就是执行ID，直接删除执行记录
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id == report_id)
+    )
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="报告不存在"
+        )
 

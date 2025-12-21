@@ -39,20 +39,20 @@ Write-Host "Cleaning old build files..." -ForegroundColor Gray
 Remove-Item -Recurse -Force dist,node_modules\.vite -ErrorAction SilentlyContinue
 
 # Find npm
-$npmCmd = $null
+$npmPath = $null
 $npmCheck = Get-Command npm -ErrorAction SilentlyContinue
 if ($npmCheck) {
-    $npmCmd = "npm"
+    $npmPath = $npmCheck.Source
 } else {
     $nodeCheck = Get-Command node -ErrorAction SilentlyContinue
     if ($nodeCheck) {
         $nodeDir = Split-Path $nodeCheck.Source -Parent
         $npmPath = Join-Path $nodeDir "npm.cmd"
-        if (Test-Path $npmPath) {
-            $npmCmd = "`"$npmPath`""
+        if (-not (Test-Path $npmPath)) {
+            $npmPath = $null
         }
     }
-    if (-not $npmCmd) {
+    if (-not $npmPath) {
         $commonPaths = @(
             "$env:ProgramFiles\nodejs\npm.cmd",
             "${env:ProgramFiles(x86)}\nodejs\npm.cmd",
@@ -60,28 +60,28 @@ if ($npmCheck) {
         )
         foreach ($path in $commonPaths) {
             if (Test-Path $path) {
-                $npmCmd = "`"$path`""
+                $npmPath = $path
                 break
             }
         }
     }
 }
 
-if (-not $npmCmd) {
+if (-not $npmPath) {
     Write-Host "[FAIL] npm not found, please ensure Node.js is installed" -ForegroundColor Red
     Set-Location ..
     exit 1
 }
 
 # Ensure node is in PATH
-$nodeDir = Split-Path $npmCmd -Parent
-$nodeDir = $nodeDir.Trim('"')
+$nodeDir = Split-Path $npmPath -Parent
 if ($nodeDir -and (Test-Path $nodeDir)) {
     $env:PATH = "$nodeDir;$env:PATH"
 }
 
 # Execute build
 Write-Host "Running npm run build..." -ForegroundColor Gray
+Write-Host "Using npm: $npmPath" -ForegroundColor Gray
 
 # Function to remove ANSI escape sequences (color codes)
 function Remove-AnsiEscape {
@@ -91,7 +91,8 @@ function Remove-AnsiEscape {
 }
 
 # Run build and capture output
-$buildResult = & $npmCmd run build 2>&1
+# Use & operator with the path directly (no quotes needed)
+$buildResult = & $npmPath run build 2>&1
 $buildOutput = $buildResult | Out-String
 
 # Remove ANSI escape sequences and display clean output
@@ -126,20 +127,13 @@ Write-Host ""
 Write-Host "=== Step 2: Frontend Deploy ===" -ForegroundColor Yellow
 $env:PATH = "C:\Program Files\Git\usr\bin;" + $env:PATH
 
-# Upload index.html
-Write-Host "Uploading index.html..." -ForegroundColor Gray
-scp -o StrictHostKeyChecking=no dist\index.html root@47.116.197.230:/usr/share/nginx/html/qualityguard/index.html
+# Upload entire dist directory to ensure all files are deployed
+# This includes index.html, all JS chunks, CSS files, and other assets
+Write-Host "Uploading entire dist directory..." -ForegroundColor Gray
+Write-Host "  This ensures all build artifacts (JS chunks, CSS, assets) are deployed" -ForegroundColor Gray
+scp -o StrictHostKeyChecking=no -r dist/* root@47.116.197.230:/usr/share/nginx/html/qualityguard/
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "[FAIL] index.html upload failed" -ForegroundColor Red
-    Set-Location ..
-    exit 1
-}
-
-# Upload JS file
-Write-Host "Uploading JS file: $($jsFile.Name)..." -ForegroundColor Gray
-scp -o StrictHostKeyChecking=no $jsFile.FullName root@47.116.197.230:/usr/share/nginx/html/qualityguard/assets/$($jsFile.Name)
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "[FAIL] JS file upload failed" -ForegroundColor Red
+    Write-Host "[FAIL] Frontend directory upload failed" -ForegroundColor Red
     Set-Location ..
     exit 1
 }

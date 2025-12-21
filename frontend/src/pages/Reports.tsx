@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
-import { Table, Button, Tag, Modal, message, Card, Row, Col, Statistic, Tabs, Dropdown, Input } from 'antd'
-import { DownloadOutlined, EyeOutlined, ShareAltOutlined, DownOutlined } from '@ant-design/icons'
+import { Table, Button, Tag, Modal, message, Card, Row, Col, Statistic, Tabs, Dropdown, Input, Popconfirm, Space } from 'antd'
+import { DownloadOutlined, EyeOutlined, ShareAltOutlined, DownOutlined, DeleteOutlined } from '@ant-design/icons'
 import { reportService, ReportSummary, ReportDetail } from '../store/services/report'
 import dayjs from 'dayjs'
 
@@ -14,6 +14,7 @@ const Reports: React.FC = () => {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [selectedText, setSelectedText] = useState('')
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
   const responseTextAreaRef = useRef<any>(null)
 
   useEffect(() => {
@@ -92,6 +93,32 @@ const Reports: React.FC = () => {
     }
   }
 
+  const handleDelete = async (id: number) => {
+    try {
+      await reportService.deleteReport(id)
+      message.success('删除成功')
+      loadReports()
+      setSelectedRowKeys([])
+    } catch (error: any) {
+      message.error('删除失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请选择要删除的报告')
+      return
+    }
+    try {
+      await reportService.batchDeleteReports(selectedRowKeys as number[])
+      message.success(`成功删除 ${selectedRowKeys.length} 条报告`)
+      loadReports()
+      setSelectedRowKeys([])
+    } catch (error: any) {
+      message.error('批量删除失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
   const columns = [
     {
       title: '报告ID',
@@ -155,7 +182,7 @@ const Reports: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 140,
+      width: 180,
       render: (_: any, record: ReportSummary) => {
         const items = [
           {
@@ -194,6 +221,19 @@ const Reports: React.FC = () => {
               </span>
             ),
           },
+          {
+            type: 'divider' as const,
+          },
+          {
+            key: 'delete',
+            label: (
+              <span style={{ color: '#ff4d4f' }}>
+                <DeleteOutlined style={{ marginRight: 4 }} />
+                删除
+              </span>
+            ),
+            danger: true,
+          },
         ]
 
         const onMenuClick = ({ key }: { key: string }) => {
@@ -205,21 +245,35 @@ const Reports: React.FC = () => {
             handleDownload(record, 'doc')
           } else if (key === 'share') {
             handleShare(record)
+          } else if (key === 'delete') {
+            // 删除操作使用 Popconfirm，在菜单外处理
           }
         }
 
         return (
-          <Dropdown
-            menu={{
-              items,
-              onClick: onMenuClick,
-            }}
-            trigger={['click']}
-          >
-            <Button type="link">
-              操作 <DownOutlined />
-            </Button>
-          </Dropdown>
+          <Space>
+            <Dropdown
+              menu={{
+                items,
+                onClick: onMenuClick,
+              }}
+              trigger={['click']}
+            >
+              <Button type="link">
+                操作 <DownOutlined />
+              </Button>
+            </Dropdown>
+            <Popconfirm
+              title="确定要删除这条报告吗？"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button type="link" danger icon={<DeleteOutlined />} size="small">
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
         )
       },
     },
@@ -709,7 +763,21 @@ const Reports: React.FC = () => {
         maxWidth: '100%',
       }}
     >
-      <h2 style={{ marginBottom: 16, marginTop: 0 }}>测试报告</h2>
+      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <h2 style={{ marginBottom: 0, marginTop: 0 }}>测试报告</h2>
+        {selectedRowKeys.length > 0 && (
+          <Popconfirm
+            title={`确定要删除选中的 ${selectedRowKeys.length} 条报告吗？`}
+            onConfirm={handleBatchDelete}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="primary" danger icon={<DeleteOutlined />}>
+              批量删除 ({selectedRowKeys.length})
+            </Button>
+          </Popconfirm>
+        )}
+      </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}>
@@ -744,6 +812,10 @@ const Reports: React.FC = () => {
             columns={columns}
             dataSource={Array.isArray(reports) ? reports : []}
             rowKey="id"
+            rowSelection={{
+              selectedRowKeys,
+              onChange: (keys) => setSelectedRowKeys(keys),
+            }}
             pagination={{
               current: page,
               pageSize,

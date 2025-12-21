@@ -40,6 +40,7 @@ class InterfaceUpdate(BaseModel):
     method: Optional[HttpMethod] = None
     path: Optional[str] = Field(None, min_length=1, max_length=500)
     description: Optional[str] = None
+    project_id: Optional[int] = None
     status: Optional[InterfaceStatus] = None
     module: Optional[str] = Field(None, max_length=100)
     tags: Optional[List[str]] = None

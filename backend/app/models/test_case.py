@@ -38,6 +38,7 @@ class TestCase(Base):
     owner_id = Column(Integer, ForeignKey("users.id"), nullable=True)  # 负责人
     status = Column(String(50), default='active')  # 状态：active, inactive, archived
     module = Column(String(100))  # 模块
+    directory_id = Column(Integer, ForeignKey("directories.id"), nullable=True)  # 目录ID
     is_favorite = Column(JSON)  # 收藏人列表 [user_id1, user_id2]
     is_template = Column(Boolean, default=False)  # 是否为系统模板
     is_shared = Column(Boolean, default=False)  # 是否共享
@@ -50,4 +51,5 @@ class TestCase(Base):
     project = relationship("Project", backref="test_cases")
     creator = relationship("User", foreign_keys=[created_by], backref="created_test_cases")
     owner = relationship("User", foreign_keys=[owner_id], backref="owned_test_cases")
+    directory = relationship("Directory", backref="test_cases")
 

@@ -32,7 +32,16 @@ import {
   DataGeneratorCreate,
   DataGeneratorUpdate,
 } from '../store/services/dataDriver'
+import { 
+  testDataConfigService,
+  TestDataConfig,
+  TestDataConfigCreate,
+  TestDataConfigUpdate,
+  TestDataConfigListItem,
+  TestDataItem
+} from '../store/services/testDataConfig'
 import { projectService, Project } from '../store/services/project'
+import TestDataTable from '../components/TestDataTable'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -63,6 +72,14 @@ const DataDrivers: React.FC = () => {
   const [generatorModalVisible, setGeneratorModalVisible] = useState(false)
   const [editingGenerator, setEditingGenerator] = useState<DataGenerator | null>(null)
   const [generatorForm] = Form.useForm()
+
+  // 测试数据配置相关状态
+  const [testDataConfigs, setTestDataConfigs] = useState<TestDataConfigListItem[]>([])
+  const [testDataLoading, setTestDataLoading] = useState(false)
+  const [testDataModalVisible, setTestDataModalVisible] = useState(false)
+  const [editingTestDataConfig, setEditingTestDataConfig] = useState<TestDataConfig | null>(null)
+  const [testDataForm] = Form.useForm()
+  const [testDataTableData, setTestDataTableData] = useState<TestDataItem[]>([])
 
   const sourceTypes = [
     { value: 'csv', label: 'CSV' },
@@ -97,6 +114,8 @@ const DataDrivers: React.FC = () => {
       loadDataTemplates()
     } else if (activeTab === 'generators') {
       loadDataGenerators()
+    } else if (activeTab === 'test-data') {
+      loadTestDataConfigs()
     }
   }, [activeTab, selectedProject, searchText])
 
@@ -151,6 +170,21 @@ const DataDrivers: React.FC = () => {
       message.error('加载数据生成器列表失败: ' + (error.response?.data?.detail || error.message))
     } finally {
       setGeneratorLoading(false)
+    }
+  }
+
+  const loadTestDataConfigs = async () => {
+    try {
+      setTestDataLoading(true)
+      const params: any = {}
+      if (selectedProject) params.project_id = selectedProject
+      if (searchText) params.search = searchText
+      const data = await testDataConfigService.getTestDataConfigs(params)
+      setTestDataConfigs(Array.isArray(data) ? data : [])
+    } catch (error: any) {
+      message.error('加载测试数据配置列表失败: ' + (error.response?.data?.detail || error.message))
+    } finally {
+      setTestDataLoading(false)
     }
   }
 
@@ -354,6 +388,66 @@ const DataDrivers: React.FC = () => {
     }
   }
 
+  // 测试数据配置相关处理函数
+  const handleCreateTestDataConfig = () => {
+    setEditingTestDataConfig(null)
+    testDataForm.resetFields()
+    testDataForm.setFieldsValue({ is_active: true })
+    setTestDataTableData([])
+    setTestDataModalVisible(true)
+  }
+
+  const handleEditTestDataConfig = async (config: TestDataConfigListItem) => {
+    try {
+      const fullConfig = await testDataConfigService.getTestDataConfig(config.id)
+      setEditingTestDataConfig(fullConfig)
+      testDataForm.setFieldsValue({
+        name: fullConfig.name,
+        description: fullConfig.description,
+        project_id: fullConfig.project_id,
+        is_active: fullConfig.is_active !== false,
+      })
+      setTestDataTableData(fullConfig.data || [])
+      setTestDataModalVisible(true)
+    } catch (error: any) {
+      message.error('加载配置详情失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handleDeleteTestDataConfig = async (id: number) => {
+    try {
+      await testDataConfigService.deleteTestDataConfig(id)
+      message.success('删除成功')
+      loadTestDataConfigs()
+    } catch (error: any) {
+      message.error('删除失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handleSubmitTestDataConfig = async () => {
+    try {
+      const values = await testDataForm.validateFields()
+      const submitData: TestDataConfigCreate | TestDataConfigUpdate = {
+        ...values,
+        data: testDataTableData,
+      }
+      if (editingTestDataConfig) {
+        await testDataConfigService.updateTestDataConfig(editingTestDataConfig.id, submitData)
+        message.success('更新成功')
+      } else {
+        await testDataConfigService.createTestDataConfig(submitData as TestDataConfigCreate)
+        message.success('创建成功')
+      }
+      setTestDataModalVisible(false)
+      testDataForm.resetFields()
+      setTestDataTableData([])
+      loadTestDataConfigs()
+    } catch (error: any) {
+      if (error.errorFields) return
+      message.error((editingTestDataConfig ? '更新' : '创建') + '失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
   const sourceColumns = [
     {
       title: '名称',
@@ -492,6 +586,67 @@ const DataDrivers: React.FC = () => {
     },
   ]
 
+  const testDataConfigColumns = [
+    {
+      title: '名称',
+      dataIndex: 'name',
+      key: 'name',
+    },
+    {
+      title: '描述',
+      dataIndex: 'description',
+      key: 'description',
+      ellipsis: true,
+    },
+    {
+      title: '项目',
+      dataIndex: 'project_id',
+      key: 'project_id',
+      render: (projectId: number | null) => {
+        if (!projectId) return <Tag color="green">全局</Tag>
+        const project = projects.find(p => p.id === projectId)
+        return project ? project.name : '-'
+      },
+    },
+    {
+      title: '数据行数',
+      dataIndex: 'data_count',
+      key: 'data_count',
+      width: 100,
+      render: (count: number) => <Tag color="blue">{count}</Tag>,
+    },
+    {
+      title: '关联用例数',
+      dataIndex: 'associated_case_count',
+      key: 'associated_case_count',
+      width: 120,
+      render: (count: number) => <Tag color="purple">{count}</Tag>,
+    },
+    {
+      title: '状态',
+      dataIndex: 'is_active',
+      key: 'is_active',
+      render: (isActive: boolean) => (
+        <Tag color={isActive ? 'green' : 'default'}>{isActive ? '激活' : '禁用'}</Tag>
+      ),
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 180,
+      render: (_: any, record: TestDataConfigListItem) => (
+        <Space>
+          <Button type="link" size="small" icon={<EditOutlined />} onClick={() => handleEditTestDataConfig(record)}>
+            编辑
+          </Button>
+          <Popconfirm title="确定要删除吗？" onConfirm={() => handleDeleteTestDataConfig(record.id)}>
+            <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ]
+
   return (
     <div style={{ padding: 24 }}>
       <Card>
@@ -527,6 +682,7 @@ const DataDrivers: React.FC = () => {
               if (activeTab === 'sources') handleCreateSource()
               else if (activeTab === 'templates') handleCreateTemplate()
               else if (activeTab === 'generators') handleCreateGenerator()
+              else if (activeTab === 'test-data') handleCreateTestDataConfig()
             }}
           >
             新建
@@ -572,6 +728,19 @@ const DataDrivers: React.FC = () => {
                   dataSource={dataGenerators}
                   rowKey="id"
                   loading={generatorLoading}
+                  pagination={{ pageSize: 20 }}
+                />
+              ),
+            },
+            {
+              key: 'test-data',
+              label: '测试数据配置',
+              children: (
+                <Table
+                  columns={testDataConfigColumns}
+                  dataSource={testDataConfigs}
+                  rowKey="id"
+                  loading={testDataLoading}
                   pagination={{ pageSize: 20 }}
                 />
               ),
@@ -722,6 +891,46 @@ const DataDrivers: React.FC = () => {
           </Form.Item>
           <Form.Item name="is_active" label="状态" valuePropName="checked">
             <Switch checkedChildren="激活" unCheckedChildren="禁用" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 测试数据配置Modal */}
+      <Modal
+        title={editingTestDataConfig ? '编辑测试数据配置' : '新建测试数据配置'}
+        open={testDataModalVisible}
+        onOk={handleSubmitTestDataConfig}
+        onCancel={() => {
+          setTestDataModalVisible(false)
+          testDataForm.resetFields()
+          setTestDataTableData([])
+        }}
+        width={1200}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={testDataForm} layout="vertical">
+          <Form.Item name="name" label="配置名称" rules={[{ required: true, message: '请输入配置名称' }]}>
+            <Input placeholder="请输入配置名称" />
+          </Form.Item>
+          <Form.Item name="description" label="描述">
+            <TextArea rows={2} placeholder="请输入描述" />
+          </Form.Item>
+          <Form.Item name="project_id" label="所属项目">
+            <Select placeholder="选择项目（留空表示全局）" allowClear>
+              {projects.map(project => (
+                <Option key={project.id} value={project.id}>{project.name}</Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="is_active" label="状态" valuePropName="checked">
+            <Switch checkedChildren="激活" unCheckedChildren="禁用" />
+          </Form.Item>
+          <Form.Item label="测试数据列表" required>
+            <TestDataTable
+              value={testDataTableData}
+              onChange={(data) => setTestDataTableData(data)}
+            />
           </Form.Item>
         </Form>
       </Modal>

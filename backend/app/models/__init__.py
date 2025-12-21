@@ -17,6 +17,8 @@ from app.models.assertion_library import AssertionLibrary
 from app.models.data_driver import DataSource, DataTemplate, DataGenerator
 from app.models.environment import Environment
 from app.models.test_case_review import TestCaseReview, ReviewComment, ReviewStatus
+from app.models.test_data_config import TestDataConfig, TestCaseTestDataConfig
+from app.models.token_config import TokenConfig
 
 __all__ = [
     "User",
@@ -44,6 +46,9 @@ __all__ = [
     "TestCaseReview",
     "ReviewComment",
     "ReviewStatus",
-  "Environment",
+    "Environment",
+    "TestDataConfig",
+    "TestCaseTestDataConfig",
+    "TokenConfig",
 ]
 

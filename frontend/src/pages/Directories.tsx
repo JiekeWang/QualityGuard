@@ -241,13 +241,11 @@ const Directories: React.FC = () => {
         {selectedProject ? (
           <Table
             columns={columns}
-            dataSource={allDirectories}
+            dataSource={directories}
             rowKey="id"
             loading={loading}
             pagination={false}
-            expandable={{
-              defaultExpandAllRows: true,
-            }}
+            defaultExpandAllRows={true}
           />
         ) : (
           <div style={{ textAlign: 'center', padding: '50px 0', color: '#999' }}>

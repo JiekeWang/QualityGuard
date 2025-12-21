@@ -9,7 +9,9 @@ import { interfaceService, type Interface } from '../store/services/interface'
 import { testCaseCollectionService, TestCaseCollection, TestCaseCollectionCreate, TestCaseCollectionUpdate } from '../store/services/testCaseCollection'
 import { userService, UserResponse } from '../store/services/user'
 import { directoryService, Directory } from '../store/services/directory'
+import { moduleService, Module } from '../store/services/module'
 import { dataDriverService, DataSource, DataTemplate } from '../store/services/dataDriver'
+import { testDataConfigService, TestDataConfigListItem, TestDataConfig } from '../store/services/testDataConfig'
 import { api } from '../store/services/api'
 import dayjs from 'dayjs'
 import { 
@@ -20,7 +22,6 @@ import {
   convertToExcel, 
   convertToHTML 
 } from '../utils/importExport'
-import DataDriverTable from '../components/DataDriverTable'
 
 const { Option } = Select
 const { TextArea } = Input
@@ -37,6 +38,7 @@ const TestCases: React.FC = () => {
   const [selectedTag, setSelectedTag] = useState<string | undefined>()
   const [selectedStatus, setSelectedStatus] = useState<string | undefined>()
   const [selectedModule, setSelectedModule] = useState<string | undefined>()
+  const [selectedDirectory, setSelectedDirectory] = useState<number | undefined>()
   const [viewMode, setViewMode] = useState<'all' | 'my_created' | 'my_owned' | 'my_favorite'>('all')
   const [dateRange, setDateRange] = useState<[string, string] | null>(null)
   const [searchText, setSearchText] = useState('')
@@ -57,6 +59,7 @@ const TestCases: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'cases' | 'collections'>('cases')
   const [users, setUsers] = useState<UserResponse[]>([])
   const [directories, setDirectories] = useState<Directory[]>([])
+  const [modules, setModules] = useState<Module[]>([])
   const [batchImportVisible, setBatchImportVisible] = useState(false)
   const [batchSyncVisible, setBatchSyncVisible] = useState(false)
   const [referenceModalVisible, setReferenceModalVisible] = useState(false)
@@ -74,6 +77,9 @@ const TestCases: React.FC = () => {
   const [compareResult, setCompareResult] = useState<any>(null)
   const [isDataDriven, setIsDataDriven] = useState(false)
   const [dataDriverValue, setDataDriverValue] = useState<string>('')
+  const [testDataConfigs, setTestDataConfigs] = useState<TestDataConfigListItem[]>([])
+  const [associatedConfigs, setAssociatedConfigs] = useState<TestDataConfig[]>([])
+  const [loadingConfigs, setLoadingConfigs] = useState(false)
 
   useEffect(() => {
     loadProjects()
@@ -83,16 +89,20 @@ const TestCases: React.FC = () => {
     if (selectedProject) {
       loadInterfaces()
       loadDirectories()
+      loadModules()
       loadDataSources()
       loadDataTemplates()
+      loadTestDataConfigs()
     }
   }, [])
 
   useEffect(() => {
     if (selectedProject) {
       loadDirectories()
+      loadModules()
       loadDataSources()
       loadDataTemplates()
+      loadTestDataConfigs()
     }
   }, [selectedProject])
 
@@ -104,7 +114,7 @@ const TestCases: React.FC = () => {
 
   useEffect(() => {
     loadTestCases()
-  }, [selectedProject, selectedType, selectedTag, selectedStatus, selectedModule, viewMode, dateRange, searchText])
+  }, [selectedProject, selectedType, selectedTag, selectedStatus, selectedModule, selectedDirectory, viewMode, dateRange, searchText])
 
   useEffect(() => {
     // 提取所有标签
@@ -202,6 +212,7 @@ const TestCases: React.FC = () => {
     setEditingCase(null)
     form.resetFields()
     setIsDataDriven(false)
+    setAssociatedConfigs([])
     setModalVisible(true)
   }
 
@@ -225,6 +236,7 @@ const TestCases: React.FC = () => {
       priority: config.priority || 'medium',
       interface_id: config.interface_id,
       module: record.module,
+      directory_id: record.directory_id,
       status: record.status || 'active',
       is_multi_interface: record.is_multi_interface || false,
       workflow: record.workflow ? JSON.stringify(record.workflow, null, 2) : '',
@@ -248,10 +260,8 @@ const TestCases: React.FC = () => {
       retry_count: config.retry_count || 0,
       pre_script: config.pre_script || '',
       post_script: config.post_script || '',
-      // 高级配置 JSON（包含 token_config 等）
-      advanced_config: config.token_config 
-        ? JSON.stringify({ token_config: config.token_config }, null, 2)
-        : '',
+      // 高级配置 JSON
+      advanced_config: '',
       // 数据驱动配置
       // 确保 is_data_driven 是布尔值，处理 null/undefined/0/1/'true'/'false' 等情况
       is_data_driven: record.is_data_driven === true || record.is_data_driven === 1 || record.is_data_driven === 'true',
@@ -264,6 +274,14 @@ const TestCases: React.FC = () => {
     // 设置数据驱动状态
     const isDataDrivenValue = record.is_data_driven === true || record.is_data_driven === 1 || record.is_data_driven === 'true'
     setIsDataDriven(isDataDrivenValue)
+    
+    // 加载已关联的测试数据配置
+    if (isDataDrivenValue) {
+      loadAssociatedConfigs(record.id)
+    } else {
+      setAssociatedConfigs([])
+    }
+    
     setModalVisible(true)
   }
 
@@ -428,6 +446,17 @@ const TestCases: React.FC = () => {
     }
   }
 
+  const loadModules = async () => {
+    if (!selectedProject) return
+    try {
+      const data = await moduleService.getModules({ project_id: selectedProject })
+      setModules(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('加载模块列表失败:', error)
+      setModules([])
+    }
+  }
+
   const loadDataSources = async () => {
     if (!selectedProject) return
     try {
@@ -447,6 +476,30 @@ const TestCases: React.FC = () => {
     } catch (error) {
       console.error('加载数据模板列表失败:', error)
       setDataTemplates([])
+    }
+  }
+
+  const loadTestDataConfigs = async () => {
+    if (!selectedProject) return
+    try {
+      const data = await testDataConfigService.getTestDataConfigs({ project_id: selectedProject })
+      setTestDataConfigs(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('加载测试数据配置列表失败:', error)
+      setTestDataConfigs([])
+    }
+  }
+
+  const loadAssociatedConfigs = async (testCaseId: number) => {
+    try {
+      setLoadingConfigs(true)
+      const data = await testDataConfigService.getTestCaseConfigs(testCaseId)
+      setAssociatedConfigs(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.error('加载已关联配置失败:', error)
+      setAssociatedConfigs([])
+    } finally {
+      setLoadingConfigs(false)
     }
   }
 
@@ -1340,15 +1393,13 @@ const TestCases: React.FC = () => {
         }
       }
       
-      // 解析高级配置 JSON（包含 token_config 等）
+      // 解析高级配置 JSON（如果存在其他高级配置，可以在这里处理）
+      // 注意：token_config已迁移到Token管理功能，不再在此处理
       if (values.advanced_config && values.advanced_config.trim()) {
         try {
           const advancedConfig = JSON.parse(values.advanced_config)
-          // 合并 advanced_config 到 config 中
-          if (advancedConfig.token_config) {
-            config.token_config = advancedConfig.token_config
-          }
           // 可以在这里添加其他高级配置的处理
+          // 注意：token_config已迁移到Token管理功能，不再在此处理
         } catch (e) {
           message.error('高级配置JSON格式错误')
           return
@@ -1424,7 +1475,9 @@ const TestCases: React.FC = () => {
           test_type: values.test_type,
           tags: values.tags || [],
           module: values.module,
+          directory_id: values.directory_id,
           status: values.status,
+          project_id: values.project_id,
           is_multi_interface: values.is_multi_interface || false,
           workflow: workflow,
           is_data_driven: is_data_driven,
@@ -1443,12 +1496,17 @@ const TestCases: React.FC = () => {
         
         console.log('[调试] 保存测试用例，数据：', updateData)
         console.log('[调试] config:', config)
+        console.log('[调试] values.advanced_config:', values.advanced_config)
         console.log('[调试] config.interface_id:', config.interface_id)
         console.log('[调试] is_data_driven:', is_data_driven)
         console.log('[调试] data_driver:', data_driver)
         
         await testCaseService.updateTestCase(editingCase.id, updateData)
         message.success('更新成功')
+        // 如果项目发生了变化，需要更新selectedProject状态
+        if (values.project_id && values.project_id !== editingCase.project_id) {
+          setSelectedProject(values.project_id)
+        }
       } else {
         const createData: TestCaseCreate = {
           name: values.name,
@@ -1457,6 +1515,7 @@ const TestCases: React.FC = () => {
           test_type: values.test_type,
           tags: values.tags || [],
           module: values.module,
+          directory_id: values.directory_id,
           status: values.status || 'active',
           is_multi_interface: values.is_multi_interface || false,
           workflow: workflow,
@@ -1465,11 +1524,26 @@ const TestCases: React.FC = () => {
           steps: [],
           config: config,
         } as any
-        await testCaseService.createTestCase(createData)
+        const newCase = await testCaseService.createTestCase(createData)
         message.success('创建成功')
+        
+        // 如果创建时选择了关联配置，创建关联关系
+        if (is_data_driven && associatedConfigs.length > 0 && newCase.id) {
+          try {
+            for (const config of associatedConfigs) {
+              await testDataConfigService.associateTestCase(newCase.id, config.id)
+            }
+            message.success(`已关联 ${associatedConfigs.length} 个测试数据配置`)
+          } catch (error: any) {
+            console.error('关联配置失败:', error)
+            // 不阻止保存，只提示
+            message.warning('用例创建成功，但关联配置失败: ' + (error.response?.data?.detail || error.message))
+          }
+        }
       }
       setModalVisible(false)
       form.resetFields()
+      setAssociatedConfigs([])
       // 确保刷新列表
       await loadTestCases()
     } catch (error: any) {
@@ -1902,13 +1976,60 @@ const TestCases: React.FC = () => {
               <Option value="inactive">未激活</Option>
               <Option value="archived">已归档</Option>
             </Select>
-            <Input
-              placeholder="模块名称"
+            <Select
+              placeholder="选择模块"
+              allowClear
               style={{ width: 150 }}
               value={selectedModule}
-              onChange={(e) => setSelectedModule(e.target.value || undefined)}
+              onChange={setSelectedModule}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {Array.isArray(modules) ? modules.map(module => (
+                module && (
+                  <Option key={module.id} value={module.name}>
+                    {module.name}
+                  </Option>
+                )
+              )).filter(Boolean) : []}
+            </Select>
+            <Select
+              placeholder="选择目录"
               allowClear
-            />
+              style={{ width: 150 }}
+              value={selectedDirectory}
+              onChange={setSelectedDirectory}
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {Array.isArray(directories) ? (() => {
+                // 扁平化目录列表用于显示
+                const flattenDirectories = (dirs: Directory[]): Directory[] => {
+                  const result: Directory[] = []
+                  const traverse = (d: Directory[]) => {
+                    d.forEach(dir => {
+                      result.push(dir)
+                      if (dir.children && dir.children.length > 0) {
+                        traverse(dir.children)
+                      }
+                    })
+                  }
+                  traverse(dirs)
+                  return result
+                }
+                return flattenDirectories(directories)
+              })().map(dir => (
+                dir && (
+                  <Option key={dir.id} value={dir.id}>
+                    {dir.name}
+                  </Option>
+                )
+              )).filter(Boolean) : []}
+            </Select>
             <Select
               placeholder="选择标签"
               allowClear
@@ -2039,6 +2160,58 @@ const TestCases: React.FC = () => {
                   <Form.Item name="description" label="描述">
                     <TextArea rows={3} placeholder="请输入用例描述" />
                   </Form.Item>
+                  <Form.Item name="module" label="模块">
+                    <Select 
+                      placeholder="请选择模块（可选）" 
+                      allowClear
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {Array.isArray(modules) ? modules.map(module => (
+                        module && (
+                          <Option key={module.id} value={module.name}>
+                            {module.name}
+                          </Option>
+                        )
+                      )).filter(Boolean) : []}
+                    </Select>
+                  </Form.Item>
+                  <Form.Item name="directory_id" label="目录">
+                    <Select 
+                      placeholder="请选择目录（可选）" 
+                      allowClear
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {Array.isArray(directories) ? (() => {
+                        // 扁平化目录列表用于显示
+                        const flattenDirectories = (dirs: Directory[]): Directory[] => {
+                          const result: Directory[] = []
+                          const traverse = (d: Directory[]) => {
+                            d.forEach(dir => {
+                              result.push(dir)
+                              if (dir.children && dir.children.length > 0) {
+                                traverse(dir.children)
+                              }
+                            })
+                          }
+                          traverse(dirs)
+                          return result
+                        }
+                        return flattenDirectories(directories)
+                      })().map(dir => (
+                        dir && (
+                          <Option key={dir.id} value={dir.id}>
+                            {dir.name}
+                          </Option>
+                        )
+                      )).filter(Boolean) : []}
+                    </Select>
+                  </Form.Item>
                   <Form.Item name="tags" label="标签">
                     <Select mode="tags" placeholder="输入标签后按回车" />
                   </Form.Item>
@@ -2068,17 +2241,122 @@ const TestCases: React.FC = () => {
                       placeholder="是否启用数据驱动"
                       onChange={(value) => {
                         setIsDataDriven(value === true)
+                        // 如果禁用数据驱动，清空关联配置
+                        if (value === false) {
+                          setAssociatedConfigs([])
+                        } else if (editingCase) {
+                          // 如果启用数据驱动，加载已关联的配置
+                          loadAssociatedConfigs(editingCase.id)
+                        }
                       }}
                     >
                       <Option value={false}>否</Option>
                       <Option value={true}>是</Option>
                     </Select>
                   </Form.Item>
+                  
+                  {isDataDriven && (
+                    <div style={{ marginTop: 24, padding: 16, background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
+                      <h4 style={{ marginTop: 0, marginBottom: 12, color: '#0c4a6e' }}>关联测试数据配置</h4>
+                      <p style={{ margin: '0 0 12px 0', color: '#0c4a6e', fontSize: 13 }}>
+                        选择已创建的测试数据配置，系统会自动使用配置中的数据执行测试。配置可在"数据驱动配置" → "测试数据配置"中管理。
+                      </p>
+                      <Form.Item 
+                        label="测试数据配置"
+                        tooltip="选择一个或多个测试数据配置，执行时会使用这些配置中的所有数据"
+                      >
+                        <Select
+                          mode="multiple"
+                          placeholder="选择测试数据配置"
+                          loading={loadingConfigs}
+                          value={associatedConfigs.map(c => c.id)}
+                          onChange={async (configIds: number[]) => {
+                            if (!editingCase) {
+                              // 创建新用例时，只更新本地状态，保存时再关联
+                              const selectedConfigs = testDataConfigs.filter(c => configIds.includes(c.id))
+                              setAssociatedConfigs(selectedConfigs.map(c => ({
+                                id: c.id,
+                                name: c.name,
+                                description: c.description,
+                                project_id: c.project_id,
+                                data: [],
+                                is_active: c.is_active
+                              })))
+                              return
+                            }
+                            
+                            // 获取当前已关联的配置ID
+                            const currentIds = associatedConfigs.map(c => c.id)
+                            
+                            // 找出新增和删除的配置
+                            const toAdd = configIds.filter(id => !currentIds.includes(id))
+                            const toRemove = currentIds.filter(id => !configIds.includes(id))
+                            
+                            try {
+                              // 添加新关联
+                              for (const configId of toAdd) {
+                                await testDataConfigService.associateTestCase(editingCase.id, configId)
+                              }
+                              
+                              // 删除关联
+                              for (const configId of toRemove) {
+                                await testDataConfigService.disassociateTestCase(editingCase.id, configId)
+                              }
+                              
+                              // 重新加载关联配置
+                              await loadAssociatedConfigs(editingCase.id)
+                              message.success('关联更新成功')
+                            } catch (error: any) {
+                              message.error('更新关联失败: ' + (error.response?.data?.detail || error.message))
+                              // 恢复原值
+                              await loadAssociatedConfigs(editingCase.id)
+                            }
+                          }}
+                          style={{ width: '100%' }}
+                          showSearch
+                          filterOption={(input, option) =>
+                            (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+                          }
+                        >
+                          {testDataConfigs
+                            .filter(config => config.is_active)
+                            .map(config => (
+                              <Option key={config.id} value={config.id}>
+                                {config.name} ({config.data_count} 条数据)
+                              </Option>
+                            ))}
+                        </Select>
+                      </Form.Item>
+                      {associatedConfigs.length > 0 && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ marginBottom: 8, color: '#0c4a6e', fontWeight: 'bold' }}>已关联的配置：</div>
+                          {associatedConfigs.map(config => (
+                            <div key={config.id} style={{ 
+                              marginBottom: 8, 
+                              padding: '8px 12px', 
+                              background: '#fff', 
+                              borderRadius: 4,
+                              border: '1px solid #d1d5db'
+                            }}>
+                              <div style={{ fontWeight: 'bold', color: '#111827' }}>{config.name}</div>
+                              {config.description && (
+                                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{config.description}</div>
+                              )}
+                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                                数据行数: {config.data?.length || 0}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
                   <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4, marginTop: 16, color: '#1f2937' }}>
                     <p style={{ margin: 0, fontWeight: 'bold', color: '#111827' }}>数据驱动说明：</p>
                     <ul style={{ marginTop: 8, marginBottom: 0, color: '#374151' }}>
                       <li>数据驱动用例：通过外部数据源驱动用例执行，支持数据模板和循环策略</li>
-                      <li>启用后，可以在"数据驱动配置"Tab中配置数据源、变量映射和循环策略</li>
+                      <li>启用后，可以在上方选择已创建的测试数据配置</li>
                     </ul>
                   </div>
                 </>
@@ -2097,7 +2375,7 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder='{"steps": [{"step_id": 1, "interface_id": 1, "name": "步骤1", "data_mapping": {}, "on_error": "stop"}], "data_flow": {}}' 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                      />
                    </Form.Item>
                   
@@ -2139,7 +2417,7 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder='{"headers": {"Content-Type": "application/json"}, "params": {"page": 1}, "body": {"name": "test"}}' 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                      />
                    </Form.Item>
                 </>
@@ -2268,7 +2546,7 @@ const TestCases: React.FC = () => {
                                       >
                                         <TextArea 
                                           placeholder='{"user_id": 1001, "username": "user1"}' 
-                                          style={{ width: 350, fontFamily: 'monospace', fontSize: '12px' }} 
+                                          style={{ width: 350, fontFamily: 'monospace', fontSize: '12px', minHeight: '240px' }} 
                                           rows={10}
                                         />
                                       </Form.Item>
@@ -2337,7 +2615,7 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder='[{"type": "status_code", "expected": 200}, {"type": "response_body", "path": "$.code", "expected": 0}]' 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                       onChange={(e) => {
                         // 实时验证断言语法
                         const value = e.target.value
@@ -2528,65 +2806,9 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder='[{"name": "token", "type": "json", "path": "$.data.token"}, {"name": "userId", "type": "regex", "pattern": "userId=(\\d+)"}]' 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                      />
                    </Form.Item>
-                  
-                </>
-              ),
-            },
-            {
-              key: 'data_driver',
-              label: '数据驱动配置',
-              disabled: !isDataDriven,
-              children: (
-                <>
-                  <Form.Item 
-                    name="data_driver" 
-                    label="测试数据列表"
-                    tooltip='每条测试数据将用于一次测试执行。支持在请求配置中使用 ${变量名} 引用数据'
-                    rules={[
-                      {
-                        validator: (_, value) => {
-                          if (!value) return Promise.resolve()
-                          try {
-                            const parsed = typeof value === 'string' ? JSON.parse(value) : value
-                            if (parsed.data && !Array.isArray(parsed.data)) {
-                              return Promise.reject(new Error('data字段必须是数组'))
-                            }
-                            return Promise.resolve()
-                          } catch (e: any) {
-                            return Promise.reject(new Error('JSON格式错误: ' + e.message))
-                          }
-                        }
-                      }
-                    ]}
-                  >
-                    <Input type="hidden" />
-                  </Form.Item>
-                  <Form.Item 
-                    label=" "
-                    colon={false}
-                    style={{ marginTop: -24 }}
-                  >
-                    <Form.Item shouldUpdate={(prev, cur) => {
-                      const prevVal = typeof prev?.data_driver === 'string' ? prev.data_driver : JSON.stringify(prev?.data_driver || {})
-                      const curVal = typeof cur?.data_driver === 'string' ? cur.data_driver : JSON.stringify(cur?.data_driver || {})
-                      return prevVal !== curVal
-                    }} noStyle>
-                      {({ getFieldValue, setFieldsValue }) => {
-                        const dataDriver = getFieldValue('data_driver')
-                        return (
-                          <DataDriverTable 
-                            dataDriver={dataDriver} 
-                            form={{ getFieldValue, setFieldsValue }}
-                          />
-                        )
-                      }}
-                    </Form.Item>
-                  </Form.Item>
-                  
-                  
                   
                 </>
               ),
@@ -2618,7 +2840,7 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder="// 前置脚本示例&#10;console.log('执行前置脚本');" 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                      />
                    </Form.Item>
                    <Form.Item 
@@ -2629,100 +2851,25 @@ const TestCases: React.FC = () => {
                      <TextArea 
                        rows={10}
                        placeholder="// 后置脚本示例&#10;console.log('执行后置脚本');" 
-                       style={{ fontFamily: 'monospace' }}
+                       style={{ fontFamily: 'monospace', minHeight: '240px' }}
                      />
                    </Form.Item>
                   
-                  <div style={{ marginTop: 32, marginBottom: 16, borderTop: '1px solid #d9d9d9', paddingTop: 24 }}>
-                    <h4 style={{ marginBottom: 16, color: '#1f2937' }}>智能 Token 管理配置</h4>
-                    <p style={{ fontSize: '13px', color: '#6b7280', marginBottom: 16 }}>
-                      配置 Token 获取接口，系统会自动检测 Token 失效并刷新
-                    </p>
-                    
-                    <Button 
-                      type="primary" 
-                      icon={<PlusOutlined />}
-                      onClick={async () => {
-                        const curlCommand = prompt(
-                          '请粘贴 Token 获取接口的 cURL 命令：\n\n提示：\n1. 从浏览器开发者工具 Network 面板复制\n2. 或从 Postman/Apipost 导出\n3. 系统会自动解析并生成配置'
-                        )
-                        if (curlCommand) {
-                          try {
-                            // 动态导入 cURL 解析工具
-                            const { parseCurl, generateTokenConfig } = await import('../utils/curlParser')
-                            const parsed = parseCurl(curlCommand)
-                            if (parsed) {
-                              // 询问 Token 的 JSONPath
-                              const tokenPath = prompt(
-                                '请输入 Token 在响应中的 JSONPath 路径：\n\n常见示例：\n- $.data.token\n- $.token\n- $.access_token\n- $.result.accessToken',
-                                '$.data.token'
-                              )
-                              if (tokenPath) {
-                                const tokenConfig = generateTokenConfig(parsed, tokenPath)
-                                // 将配置写入表单
-                                const currentConfig = form.getFieldValue('advanced_config') || {}
-                                try {
-                                  const configObj = typeof currentConfig === 'string' 
-                                    ? JSON.parse(currentConfig) 
-                                    : currentConfig
-                                  configObj.token_config = tokenConfig
-                                  form.setFieldsValue({
-                                    advanced_config: JSON.stringify(configObj, null, 2)
-                                  })
-                                  message.success('Token 配置已生成！请检查下方的高级配置字段')
-                                } catch {
-                                  form.setFieldsValue({
-                                    advanced_config: JSON.stringify({ token_config: tokenConfig }, null, 2)
-                                  })
-                                  message.success('Token 配置已生成！')
-                                }
-                              }
-                            } else {
-                              message.error('无法解析 cURL 命令，请检查格式是否正确')
-                            }
-                          } catch (error: any) {
-                            message.error('解析失败：' + (error.message || '未知错误'))
-                            console.error('cURL 解析错误:', error)
-                          }
-                        }
-                      }}
-                      style={{ marginBottom: 16 }}
-                    >
-                      从 cURL 导入 Token 配置
-                    </Button>
-                    
-                     <Form.Item 
-                       name="advanced_config" 
-                       label="高级配置（JSON）"
-                       tooltip="包含 token_config 等高级配置"
-                     >
-                       <TextArea 
-                         rows={10}
-                         placeholder={`{
-   "token_config": {
-     "url": "https://api.example.com/login",
-     "method": "POST",
-     "headers": {
-       "Content-Type": "application/json"
-     },
-     "body": {
-       "username": "admin",
-       "password": "123456"
-     },
-     "extractors": [
-       {
-         "name": "token",
-         "type": "json",
-         "path": "$.data.token"
-       }
-     ],
-     "retry_status_codes": [401, 403]
-   }
- }`}
-                         style={{ fontFamily: 'monospace', fontSize: '12px' }}
-                       />
-                     </Form.Item>
-                  </div>
+                  <Form.Item 
+                    name="advanced_config" 
+                    label="高级配置（JSON）"
+                    tooltip="其他高级配置（JSON格式）"
+                  >
+                    <TextArea 
+                      rows={6}
+                      placeholder={`{
+  "custom_config": {
+    // 其他自定义配置
+  }
+}`}
+                      style={{ fontFamily: 'monospace', fontSize: '12px', minHeight: '120px' }}
+                    />
+                  </Form.Item>
                 </>
               ),
             },
@@ -2812,7 +2959,22 @@ const TestCases: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="target_module" label="目标模块（可选）">
-            <Input placeholder="请输入目标模块名称" />
+            <Select 
+              placeholder="请选择目标模块" 
+              allowClear
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {Array.isArray(modules) ? modules.map(module => (
+                module && (
+                  <Option key={module.id} value={module.name}>
+                    {module.name}
+                  </Option>
+                )
+              )).filter(Boolean) : []}
+            </Select>
           </Form.Item>
           <Form.Item name="target_directory_id" label="目标目录（可选）">
             <Select placeholder="请选择目标目录" allowClear>
@@ -2870,7 +3032,22 @@ const TestCases: React.FC = () => {
             </Select>
           </Form.Item>
           <Form.Item name="target_module" label="目标模块（可选）">
-            <Input placeholder="请输入目标模块名称" />
+            <Select 
+              placeholder="请选择目标模块" 
+              allowClear
+              showSearch
+              filterOption={(input, option) =>
+                (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {Array.isArray(modules) ? modules.map(module => (
+                module && (
+                  <Option key={module.id} value={module.name}>
+                    {module.name}
+                  </Option>
+                )
+              )).filter(Boolean) : []}
+            </Select>
           </Form.Item>
           <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4, marginTop: 16, color: '#1f2937' }}>
             <p style={{ margin: 0, color: '#374151' }}>

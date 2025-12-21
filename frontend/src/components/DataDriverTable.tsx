@@ -313,7 +313,7 @@ const DataDriverTable: React.FC<DataDriverTableProps> = ({ dataDriver, form }) =
             render: (value: any, record: any) => {
               return (
                 <TextArea
-                  rows={4}
+                  rows={10}
                   value={value === null || value === undefined ? '' : String(value)}
                   onChange={(e) => {
                     const newDataList = [...dataList]
@@ -342,7 +342,7 @@ const DataDriverTable: React.FC<DataDriverTableProps> = ({ dataDriver, form }) =
                     updateDataDriver(newDataList)
                   }}
                   placeholder='输入接口入参，支持JSON格式，例如: {"username": "user1", "password": "pass1"}'
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                  style={{ fontFamily: 'monospace', fontSize: '12px', minHeight: '240px' }}
                 />
               )
             },
@@ -355,7 +355,7 @@ const DataDriverTable: React.FC<DataDriverTableProps> = ({ dataDriver, form }) =
             render: (value: any, record: any) => {
               return (
                 <TextArea
-                  rows={4}
+                  rows={10}
                   value={value === null || value === undefined ? '' : String(value)}
                   onChange={(e) => {
                     const newDataList = [...dataList]
@@ -388,7 +388,7 @@ const DataDriverTable: React.FC<DataDriverTableProps> = ({ dataDriver, form }) =
                     updateDataDriver(newDataList)
                   }}
                   placeholder='输入断言配置，JSON数组格式，例如: [{"type": "status_code", "expected": 200}] 或节点断言: [{"type": "node", "path": "$.data", "mode": "all_fields", "expected": {"user_id": 1001}}]'
-                  style={{ fontFamily: 'monospace', fontSize: '12px' }}
+                  style={{ fontFamily: 'monospace', fontSize: '12px', minHeight: '240px' }}
                 />
               )
             },

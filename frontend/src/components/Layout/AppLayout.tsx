@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Layout, Menu, Dropdown, Avatar, message } from 'antd'
+import { Layout, Menu, Dropdown, Avatar, message, Modal, Form, Input, Button } from 'antd'
 import {
   DashboardOutlined,
   ProjectOutlined,
@@ -10,10 +10,12 @@ import {
   SettingOutlined,
   UserOutlined,
   LogoutOutlined,
+  LockOutlined,
 } from '@ant-design/icons'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useAppDispatch, useAppSelector } from '../../store/hooks'
 import { getCurrentUserAsync, logoutAsync } from '../../store/slices/authSlice'
+import { userService } from '../../store/services/user'
 
 const { Header, Sider, Content } = Layout
 
@@ -24,6 +26,8 @@ interface AppLayoutProps {
 const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
   const [collapsed, setCollapsed] = useState(false)
   const [openKeys, setOpenKeys] = useState<any[]>([])
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false)
+  const [passwordForm] = Form.useForm()
   const navigate = useNavigate()
   const location = useLocation()
   const dispatch = useAppDispatch()
@@ -63,6 +67,11 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       label: '个人信息',
     },
     {
+      key: 'changePassword',
+      icon: <LockOutlined />,
+      label: '修改密码',
+    },
+    {
       type: 'divider' as const,
     },
     {
@@ -78,6 +87,28 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       handleLogout()
     } else if (key === 'profile') {
       navigate('/personal')
+    } else if (key === 'changePassword') {
+      setPasswordModalVisible(true)
+      passwordForm.resetFields()
+    }
+  }
+
+  const handlePasswordSubmit = async () => {
+    try {
+      const values = await passwordForm.validateFields()
+      await userService.updatePassword({
+        current_password: values.currentPassword,
+        new_password: values.newPassword,
+      })
+      message.success('密码修改成功')
+      setPasswordModalVisible(false)
+      passwordForm.resetFields()
+    } catch (error: any) {
+      if (error.response?.data?.detail) {
+        message.error(error.response.data.detail)
+      } else {
+        message.error('密码修改失败')
+      }
     }
   }
 
@@ -196,6 +227,10 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           key: '/settings/environments',
           label: '环境管理',
         },
+        {
+          key: '/settings/token-configs',
+          label: 'Token管理',
+        },
       ],
     },
   ]
@@ -220,16 +255,29 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
     return [] as string[]
   }
 
-  // 获取应该展开的菜单
+  // 获取应该展开的菜单（支持多个菜单同时展开）
+  // 只在路径变化时初始化展开状态，不依赖 openKeys 避免循环更新
   useEffect(() => {
     const path = location.pathname
+    const shouldOpen: string[] = []
     for (const item of menuItems) {
       if (item.children && path.startsWith(item.key + '/')) {
-        setOpenKeys([item.key])
-        return
+        shouldOpen.push(item.key as string)
       }
     }
-  }, [location.pathname])
+    // 只在路径变化且需要展开时才设置，使用函数式更新避免依赖 openKeys
+    if (shouldOpen.length > 0) {
+      setOpenKeys(prevKeys => {
+        const prevKeysStr = [...prevKeys].sort().join(',')
+        const shouldOpenKeysStr = [...shouldOpen].sort().join(',')
+        // 只有当需要展开的菜单与当前展开的不同时才更新
+        if (prevKeysStr !== shouldOpenKeysStr) {
+          return shouldOpen
+        }
+        return prevKeys // 保持原状，避免不必要的更新
+      })
+    }
+  }, [location.pathname]) // 只依赖路径，不依赖 openKeys 和 menuItems，避免循环
 
   return (
     <Layout style={{ minHeight: '100vh', background: 'transparent' }}>
@@ -241,11 +289,20 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
         style={{ 
           background: 'linear-gradient(180deg, #1e2329 0%, #252b3a 100%)',
           boxShadow: '2px 0 8px rgba(0, 0, 0, 0.3)',
+          overflow: 'hidden',
+          height: '100vh',
+          position: 'fixed',
+          left: 0,
+          top: 0,
+          bottom: 0,
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         <div
           style={{
             height: 56,
+            minHeight: 56,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -255,24 +312,45 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
             WebkitBackgroundClip: 'text',
             WebkitTextFillColor: 'transparent',
             backgroundClip: 'text',
-            marginBottom: 4,
+            flexShrink: 0,
           }}
         >
           {collapsed ? 'QG' : 'QualityGuard'}
         </div>
         {/* onOpenChange 这里类型比较宽，直接复用 setOpenKeys，避免不必要的类型转换 */}
         {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
-        <Menu
-          mode="inline"
-          selectedKeys={getSelectedKeys()}
-          openKeys={openKeys}
-          onOpenChange={setOpenKeys as any}
-          items={menuItems}
-          onClick={({ key }) => navigate(key as string)}
-          style={{ borderRight: 0 }}
-        />
+        <div 
+          id="sidebar-menu-container"
+          className="sidebar-menu-scroll"
+          style={{ 
+            flex: 1,
+            minHeight: 0,
+            overflowY: 'auto', 
+            overflowX: 'hidden',
+            WebkitOverflowScrolling: 'touch',
+          }}
+        >
+          <Menu
+            mode="inline"
+            selectedKeys={getSelectedKeys()}
+            openKeys={openKeys}
+            onOpenChange={(keys) => {
+              // 支持多个菜单同时展开
+              // 直接设置新的keys，不进行额外操作，避免闪烁
+              setOpenKeys(keys as string[])
+            }}
+            items={menuItems}
+            onClick={({ key }) => navigate(key as string)}
+            style={{ 
+              borderRight: 0, 
+              background: 'transparent',
+              paddingTop: '8px',
+            }}
+            inlineIndent={24}
+          />
+        </div>
       </Sider>
-      <Layout>
+      <Layout style={{ marginLeft: collapsed ? 80 : 200, transition: 'margin-left 0.2s' }}>
         <Header
           style={{
             padding: '0 16px',
@@ -327,6 +405,72 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
           {children}
         </Content>
       </Layout>
+      <Modal
+        title="修改密码"
+        open={passwordModalVisible}
+        onCancel={() => {
+          setPasswordModalVisible(false)
+          passwordForm.resetFields()
+        }}
+        footer={null}
+        width={500}
+      >
+        <Form
+          form={passwordForm}
+          layout="vertical"
+          onFinish={handlePasswordSubmit}
+        >
+          <Form.Item
+            name="currentPassword"
+            label="当前密码"
+            rules={[{ required: true, message: '请输入当前密码' }]}
+          >
+            <Input.Password placeholder="请输入当前密码" />
+          </Form.Item>
+          <Form.Item
+            name="newPassword"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '密码长度至少6位' },
+            ]}
+          >
+            <Input.Password placeholder="请输入新密码（至少6位）" />
+          </Form.Item>
+          <Form.Item
+            name="confirmPassword"
+            label="确认新密码"
+            dependencies={['newPassword']}
+            rules={[
+              { required: true, message: '请确认新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('newPassword') === value) {
+                    return Promise.resolve()
+                  }
+                  return Promise.reject(new Error('两次输入的密码不一致'))
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="请再次输入新密码" />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Button
+              onClick={() => {
+                setPasswordModalVisible(false)
+                passwordForm.resetFields()
+              }}
+              style={{ marginRight: 8 }}
+            >
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit">
+              确定
+            </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
     </Layout>
   )
 }

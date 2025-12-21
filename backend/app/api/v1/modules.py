@@ -44,8 +44,23 @@ async def get_modules(
     result = await db.execute(query.offset(skip).limit(limit))
     modules = result.scalars().all()
     
-    # 构建层级结构
-    module_dict = {m.id: ModuleResponse.model_validate(m) for m in modules}
+    # 构建层级结构 - 先将 SQLAlchemy 模型转换为字典，避免访问关联属性时的异步问题
+    module_dict = {}
+    for m in modules:
+        module_dict[m.id] = ModuleResponse(
+            id=m.id,
+            name=m.name,
+            description=m.description,
+            project_id=m.project_id,
+            parent_id=m.parent_id,
+            order=m.order,
+            is_active=m.is_active,
+            created_by=m.created_by,
+            created_at=m.created_at,
+            updated_at=m.updated_at,
+            children=[]
+        )
+    
     root_modules = []
     
     for module in modules:
@@ -55,8 +70,6 @@ async def get_modules(
         else:
             if module.parent_id in module_dict:
                 parent = module_dict[module.parent_id]
-                if parent.children is None:
-                    parent.children = []
                 parent.children.append(module_response)
     
     return root_modules if parent_id is None else [module_dict[m.id] for m in modules if m.parent_id == parent_id]
@@ -111,7 +124,20 @@ async def create_module(
     await db.commit()
     await db.refresh(new_module)
     
-    return ModuleResponse.model_validate(new_module)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return ModuleResponse(
+        id=new_module.id,
+        name=new_module.name,
+        description=new_module.description,
+        project_id=new_module.project_id,
+        parent_id=new_module.parent_id,
+        order=new_module.order,
+        is_active=new_module.is_active,
+        created_by=new_module.created_by,
+        created_at=new_module.created_at,
+        updated_at=new_module.updated_at,
+        children=[]
+    )
 
 
 @router.get("/{module_id}", response_model=ModuleResponse)
@@ -127,7 +153,20 @@ async def get_module(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="模块不存在"
         )
-    return ModuleResponse.model_validate(module)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return ModuleResponse(
+        id=module.id,
+        name=module.name,
+        description=module.description,
+        project_id=module.project_id,
+        parent_id=module.parent_id,
+        order=module.order,
+        is_active=module.is_active,
+        created_by=module.created_by,
+        created_at=module.created_at,
+        updated_at=module.updated_at,
+        children=[]
+    )
 
 
 @router.put("/{module_id}", response_model=ModuleResponse)
@@ -172,7 +211,20 @@ async def update_module(
     await db.commit()
     await db.refresh(module)
     
-    return ModuleResponse.model_validate(module)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return ModuleResponse(
+        id=module.id,
+        name=module.name,
+        description=module.description,
+        project_id=module.project_id,
+        parent_id=module.parent_id,
+        order=module.order,
+        is_active=module.is_active,
+        created_by=module.created_by,
+        created_at=module.created_at,
+        updated_at=module.updated_at,
+        children=[]
+    )
 
 
 @router.delete("/{module_id}", status_code=status.HTTP_204_NO_CONTENT)

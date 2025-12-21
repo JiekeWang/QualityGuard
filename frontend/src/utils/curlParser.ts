@@ -67,25 +67,95 @@ export function parseCurl(curlCommand: string): ParsedCurl | null {
     }
     
     // 提取请求体
-    const dataMatch = curl.match(/--data(?:-raw|-binary)?\s+['"](.+?)['"]/s)
-    if (dataMatch) {
-      try {
-        // 尝试解析为 JSON
-        result.body = JSON.parse(dataMatch[1])
-      } catch {
-        // 如果不是 JSON，保持原始字符串
-        result.body = dataMatch[1]
+    // 处理多个 --data 参数（表单数据格式）
+    const dataMatches = curl.matchAll(/--data(?:-raw|-binary)?\s+([^\s\\]+)/g)
+    const dataArray: string[] = []
+    for (const match of dataMatches) {
+      dataArray.push(match[1].trim().replace(/^['"]|['"]$/g, ''))
+    }
+    
+    if (dataArray.length > 0) {
+      // 如果有多个 --data 参数，合并为表单数据格式
+      if (dataArray.length > 1) {
+        // 多个参数，格式为 key=value，合并为对象
+        const formData: Record<string, string> = {}
+        for (const data of dataArray) {
+          const [key, ...valueParts] = data.split('=')
+          if (key && valueParts.length > 0) {
+            formData[key.trim()] = valueParts.join('=').trim()
+          }
+        }
+        result.body = formData
+        // 如果没有设置 Content-Type，默认为表单格式
+        if (!result.headers['Content-Type'] && !result.headers['content-type']) {
+          result.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+        }
+      } else {
+        // 单个参数
+        const dataStr = dataArray[0]
+        try {
+          // 尝试解析为 JSON
+          result.body = JSON.parse(dataStr)
+        } catch {
+          // 如果不是 JSON，检查是否是 key=value 格式
+          if (dataStr.includes('=')) {
+            const [key, ...valueParts] = dataStr.split('=')
+            if (key && valueParts.length > 0) {
+              result.body = { [key.trim()]: valueParts.join('=').trim() }
+              if (!result.headers['Content-Type'] && !result.headers['content-type']) {
+                result.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+              }
+            } else {
+              result.body = dataStr
+            }
+          } else {
+            result.body = dataStr
+          }
+        }
       }
     }
     
-    // 处理 -d 或 --data 参数（简写形式）
+    // 处理 -d 或 --data 参数（简写形式，如果没有找到 --data）
     if (!result.body) {
-      const shortDataMatch = curl.match(/-d\s+['"](.+?)['"]/s)
-      if (shortDataMatch) {
-        try {
-          result.body = JSON.parse(shortDataMatch[1])
-        } catch {
-          result.body = shortDataMatch[1]
+      const shortDataMatches = curl.matchAll(/-d\s+([^\s\\]+)/g)
+      const shortDataArray: string[] = []
+      for (const match of shortDataMatches) {
+        shortDataArray.push(match[1].trim().replace(/^['"]|['"]$/g, ''))
+      }
+      
+      if (shortDataArray.length > 0) {
+        if (shortDataArray.length > 1) {
+          // 多个参数
+          const formData: Record<string, string> = {}
+          for (const data of shortDataArray) {
+            const [key, ...valueParts] = data.split('=')
+            if (key && valueParts.length > 0) {
+              formData[key.trim()] = valueParts.join('=').trim()
+            }
+          }
+          result.body = formData
+          if (!result.headers['Content-Type'] && !result.headers['content-type']) {
+            result.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+          }
+        } else {
+          const dataStr = shortDataArray[0]
+          try {
+            result.body = JSON.parse(dataStr)
+          } catch {
+            if (dataStr.includes('=')) {
+              const [key, ...valueParts] = dataStr.split('=')
+              if (key && valueParts.length > 0) {
+                result.body = { [key.trim()]: valueParts.join('=').trim() }
+                if (!result.headers['Content-Type'] && !result.headers['content-type']) {
+                  result.headers['Content-Type'] = 'application/x-www-form-urlencoded'
+                }
+              } else {
+                result.body = dataStr
+              }
+            } else {
+              result.body = dataStr
+            }
+          }
         }
       }
     }
@@ -117,10 +187,51 @@ export function generateTokenConfig(
   parsed: ParsedCurl,
   tokenPath: string = '$.data.token'
 ): any {
-  return {
+  // 清理 headers：移除一些不必要的浏览器相关 headers
+  // 但保留重要的 headers（如 Content-Type、Authorization 等）
+  const cleanedHeaders: Record<string, string> = {}
+  const headersToKeep = [
+    'content-type',
+    'authorization',
+    'accept',
+    'accept-encoding',
+    'x-requested-with',
+    'origin',
+    'referer'
+  ]
+  
+  for (const [key, value] of Object.entries(parsed.headers)) {
+    const lowerKey = key.toLowerCase()
+    // 保留重要的 headers，移除浏览器相关的 headers
+    if (
+      headersToKeep.includes(lowerKey) ||
+      lowerKey.startsWith('x-') ||
+      lowerKey === 'authorization'
+    ) {
+      cleanedHeaders[key] = value
+    }
+  }
+  
+  // 如果没有 Content-Type 但 body 是对象，自动添加
+  if (parsed.body && typeof parsed.body === 'object' && !Array.isArray(parsed.body)) {
+    const hasContentType = Object.keys(cleanedHeaders).some(
+      k => k.toLowerCase() === 'content-type'
+    )
+    if (!hasContentType) {
+      // 检查 body 是否是表单数据格式
+      const isFormData = Object.values(parsed.body).every(v => typeof v === 'string')
+      if (isFormData) {
+        cleanedHeaders['Content-Type'] = 'application/x-www-form-urlencoded'
+      } else {
+        cleanedHeaders['Content-Type'] = 'application/json'
+      }
+    }
+  }
+  
+  const tokenConfig = {
     url: parsed.url,
     method: parsed.method,
-    headers: parsed.headers,
+    headers: cleanedHeaders,
     body: parsed.body,
     params: Object.keys(parsed.params).length > 0 ? parsed.params : undefined,
     extractors: [
@@ -132,6 +243,10 @@ export function generateTokenConfig(
     ],
     retry_status_codes: [401, 403]
   }
+  
+  console.log('[调试] 生成的 token_config:', JSON.stringify(tokenConfig, null, 2))
+  
+  return tokenConfig
 }
 
 /**

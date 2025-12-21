@@ -44,8 +44,23 @@ async def get_directories(
     result = await db.execute(query.offset(skip).limit(limit))
     directories = result.scalars().all()
     
-    # 构建层级结构
-    directory_dict = {d.id: DirectoryResponse.model_validate(d) for d in directories}
+    # 构建层级结构 - 先将 SQLAlchemy 模型转换为字典，避免访问关联属性时的异步问题
+    directory_dict = {}
+    for d in directories:
+        directory_dict[d.id] = DirectoryResponse(
+            id=d.id,
+            name=d.name,
+            description=d.description,
+            project_id=d.project_id,
+            parent_id=d.parent_id,
+            order=d.order,
+            is_active=d.is_active,
+            created_by=d.created_by,
+            created_at=d.created_at,
+            updated_at=d.updated_at,
+            children=[]
+        )
+    
     root_directories = []
     
     for directory in directories:
@@ -55,8 +70,6 @@ async def get_directories(
         else:
             if directory.parent_id in directory_dict:
                 parent = directory_dict[directory.parent_id]
-                if parent.children is None:
-                    parent.children = []
                 parent.children.append(directory_response)
     
     return root_directories if parent_id is None else [directory_dict[d.id] for d in directories if d.parent_id == parent_id]
@@ -111,7 +124,20 @@ async def create_directory(
     await db.commit()
     await db.refresh(new_directory)
     
-    return DirectoryResponse.model_validate(new_directory)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return DirectoryResponse(
+        id=new_directory.id,
+        name=new_directory.name,
+        description=new_directory.description,
+        project_id=new_directory.project_id,
+        parent_id=new_directory.parent_id,
+        order=new_directory.order,
+        is_active=new_directory.is_active,
+        created_by=new_directory.created_by,
+        created_at=new_directory.created_at,
+        updated_at=new_directory.updated_at,
+        children=[]
+    )
 
 
 @router.get("/{directory_id}", response_model=DirectoryResponse)
@@ -127,7 +153,20 @@ async def get_directory(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="目录不存在"
         )
-    return DirectoryResponse.model_validate(directory)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return DirectoryResponse(
+        id=directory.id,
+        name=directory.name,
+        description=directory.description,
+        project_id=directory.project_id,
+        parent_id=directory.parent_id,
+        order=directory.order,
+        is_active=directory.is_active,
+        created_by=directory.created_by,
+        created_at=directory.created_at,
+        updated_at=directory.updated_at,
+        children=[]
+    )
 
 
 @router.put("/{directory_id}", response_model=DirectoryResponse)
@@ -172,7 +211,20 @@ async def update_directory(
     await db.commit()
     await db.refresh(directory)
     
-    return DirectoryResponse.model_validate(directory)
+    # 手动构造响应对象，避免访问关联属性时的异步问题
+    return DirectoryResponse(
+        id=directory.id,
+        name=directory.name,
+        description=directory.description,
+        project_id=directory.project_id,
+        parent_id=directory.parent_id,
+        order=directory.order,
+        is_active=directory.is_active,
+        created_by=directory.created_by,
+        created_at=directory.created_at,
+        updated_at=directory.updated_at,
+        children=[]
+    )
 
 
 @router.delete("/{directory_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -8,8 +8,16 @@ from typing import Optional, List
 from app.core.database import get_db
 from app.core.dependencies import get_current_active_user
 from app.models.test_case import TestCase, TestType
+from app.models.test_data_config import TestDataConfig, TestCaseTestDataConfig
 from app.models.user import User
+from app.models.project import Project
 from app.schemas.test_case import TestCaseCreate, TestCaseUpdate, TestCaseResponse
+from app.schemas.test_data_config import (
+    TestCaseAssociationRequest,
+    TestCaseAssociationResponse,
+    TestDataConfigResponse,
+)
+from fastapi import Body
 
 router = APIRouter()
 
@@ -23,6 +31,7 @@ async def get_test_cases(
     created_by: Optional[int] = Query(None, description="创建人ID"),
     owner_id: Optional[int] = Query(None, description="负责人ID"),
     module: Optional[str] = Query(None, description="模块"),
+    directory_id: Optional[int] = Query(None, description="目录ID"),
     favorite: Optional[bool] = Query(None, description="是否收藏（true表示只显示我收藏的）"),
     is_template: Optional[bool] = Query(None, description="是否为系统模板"),
     is_shared: Optional[bool] = Query(None, description="是否共享"),
@@ -61,6 +70,9 @@ async def get_test_cases(
     
     if module:
         conditions.append(TestCase.module == module)
+    
+    if directory_id is not None:
+        conditions.append(TestCase.directory_id == directory_id)
     
     if favorite:  # 查询我收藏的
         from sqlalchemy import cast, String
@@ -248,4 +260,128 @@ async def delete_test_case(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"删除测试用例失败: {str(e)}"
         )
+
+
+# ========== 测试用例与测试数据配置关联管理 ==========
+@router.post("/{test_case_id}/test-data-configs", response_model=TestCaseAssociationResponse, status_code=status.HTTP_201_CREATED)
+async def associate_test_data_config(
+    test_case_id: int,
+    request: TestCaseAssociationRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """关联测试数据配置到测试用例"""
+    # 检查测试用例是否存在
+    test_case = await db.get(TestCase, test_case_id)
+    if not test_case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="测试用例不存在")
+    
+    # 检查测试数据配置是否存在
+    config = await db.get(TestDataConfig, request.test_data_config_id)
+    if not config:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="测试数据配置不存在")
+    
+    # 检查是否已经关联
+    existing_result = await db.execute(
+        select(TestCaseTestDataConfig).where(
+            and_(
+                TestCaseTestDataConfig.test_case_id == test_case_id,
+                TestCaseTestDataConfig.test_data_config_id == request.test_data_config_id
+            )
+        )
+    )
+    existing = existing_result.scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="该配置已经关联到此用例")
+    
+    # 创建关联
+    relation = TestCaseTestDataConfig(
+        test_case_id=test_case_id,
+        test_data_config_id=request.test_data_config_id
+    )
+    db.add(relation)
+    await db.commit()
+    await db.refresh(relation)
+    
+    return TestCaseAssociationResponse(
+        test_case_id=test_case.id,
+        test_case_name=test_case.name,
+        test_data_config_id=config.id,
+        test_data_config_name=config.name,
+        created_at=relation.created_at
+    )
+
+
+@router.delete("/{test_case_id}/test-data-configs/{config_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def disassociate_test_data_config(
+    test_case_id: int,
+    config_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """取消测试用例与测试数据配置的关联"""
+    # 检查关联是否存在
+    relation_result = await db.execute(
+        select(TestCaseTestDataConfig).where(
+            and_(
+                TestCaseTestDataConfig.test_case_id == test_case_id,
+                TestCaseTestDataConfig.test_data_config_id == config_id
+            )
+        )
+    )
+    relation = relation_result.scalar_one_or_none()
+    
+    if not relation:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="关联不存在")
+    
+    await db.delete(relation)
+    await db.commit()
+    
+    return None
+
+
+@router.get("/{test_case_id}/test-data-configs", response_model=List[TestDataConfigResponse])
+async def get_test_case_data_configs(
+    test_case_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """获取测试用例关联的所有测试数据配置"""
+    # 检查测试用例是否存在
+    test_case = await db.get(TestCase, test_case_id)
+    if not test_case:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="测试用例不存在")
+    
+    # 查询关联的配置
+    query = select(TestDataConfig).join(
+        TestCaseTestDataConfig,
+        TestDataConfig.id == TestCaseTestDataConfig.test_data_config_id
+    ).where(
+        TestCaseTestDataConfig.test_case_id == test_case_id
+    )
+    
+    result = await db.execute(query)
+    configs = result.scalars().all()
+    
+    # 转换为响应格式
+    from app.schemas.test_data_config import TestDataItem
+    response_list = []
+    for config in configs:
+        response_data = []
+        for item in (config.data or []):
+            response_data.append(TestDataItem(**item))
+        
+        response_list.append(TestDataConfigResponse(
+            id=config.id,
+            name=config.name,
+            description=config.description,
+            project_id=config.project_id,
+            data=response_data,
+            is_active=config.is_active,
+            created_by=config.created_by,
+            created_at=config.created_at,
+            updated_at=config.updated_at
+        ))
+    
+    return response_list
 

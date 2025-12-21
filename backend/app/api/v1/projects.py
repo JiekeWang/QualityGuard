@@ -129,6 +129,66 @@ async def delete_project(
             detail="项目不存在"
         )
     
+    # 检查是否有关联数据，如果有则不允许删除
+    from app.models.test_case import TestCase
+    from app.models.interface import Interface
+    from app.models.module import Module
+    from app.models.directory import Directory
+    from app.models.test_execution import TestExecution
+    from app.models.test_case_collection import TestCaseCollection
+    from app.models.test_plan import TestPlan
+    
+    # 检查测试用例
+    test_case_result = await db.execute(select(func.count(TestCase.id)).where(TestCase.project_id == project_id))
+    test_case_count = test_case_result.scalar() or 0
+    
+    # 检查接口
+    interface_result = await db.execute(select(func.count(Interface.id)).where(Interface.project_id == project_id))
+    interface_count = interface_result.scalar() or 0
+    
+    # 检查模块
+    module_result = await db.execute(select(func.count(Module.id)).where(Module.project_id == project_id))
+    module_count = module_result.scalar() or 0
+    
+    # 检查目录
+    directory_result = await db.execute(select(func.count(Directory.id)).where(Directory.project_id == project_id))
+    directory_count = directory_result.scalar() or 0
+    
+    # 检查测试执行
+    execution_result = await db.execute(select(func.count(TestExecution.id)).where(TestExecution.project_id == project_id))
+    execution_count = execution_result.scalar() or 0
+    
+    # 检查用例集
+    collection_result = await db.execute(select(func.count(TestCaseCollection.id)).where(TestCaseCollection.project_id == project_id))
+    collection_count = collection_result.scalar() or 0
+    
+    # 检查测试计划
+    plan_result = await db.execute(select(func.count(TestPlan.id)).where(TestPlan.project_id == project_id))
+    plan_count = plan_result.scalar() or 0
+    
+    # 汇总关联数据
+    related_counts = []
+    if test_case_count > 0:
+        related_counts.append(f"测试用例({test_case_count})")
+    if interface_count > 0:
+        related_counts.append(f"接口({interface_count})")
+    if module_count > 0:
+        related_counts.append(f"模块({module_count})")
+    if directory_count > 0:
+        related_counts.append(f"目录({directory_count})")
+    if execution_count > 0:
+        related_counts.append(f"测试执行({execution_count})")
+    if collection_count > 0:
+        related_counts.append(f"用例集({collection_count})")
+    if plan_count > 0:
+        related_counts.append(f"测试计划({plan_count})")
+    
+    if related_counts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"无法删除项目，该项目下存在关联数据：{', '.join(related_counts)}。请先删除这些关联数据后再删除项目。"
+        )
+    
     # 使用 delete 语句删除
     await db.execute(delete(Project).where(Project.id == project_id))
     await db.commit()

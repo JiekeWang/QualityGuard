@@ -22,6 +22,7 @@ import AssertionLibraries from './pages/AssertionLibraries'
 import DataDrivers from './pages/DataDrivers'
 import TestCaseReviews from './pages/TestCaseReviews'
 import Environments from './pages/Environments'
+import TokenConfigs from './pages/TokenConfigs'
 import ProtectedRoute from './components/ProtectedRoute'
 import ErrorBoundary from './components/ErrorBoundary'
 
@@ -59,6 +60,7 @@ function App() {
                       <Route path="/ui-automation" element={<UIAutomation />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/settings/environments" element={<Environments />} />
+                      <Route path="/settings/token-configs" element={<TokenConfigs />} />
                       <Route path="/personal" element={<PersonalCenter />} />
                     </Routes>
                   </ErrorBoundary>

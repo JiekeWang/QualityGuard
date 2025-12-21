@@ -140,6 +140,17 @@ async def update_interface(
             detail="接口不存在"
         )
     
+    # 如果更新了项目ID，检查项目是否存在
+    if interface_update.project_id is not None:
+        from app.models.project import Project
+        project_result = await db.execute(select(Project).where(Project.id == interface_update.project_id))
+        project = project_result.scalar_one_or_none()
+        if not project:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="项目不存在"
+            )
+    
     # 更新字段
     update_data = interface_update.dict(exclude_unset=True)
     # 确保 JSON 字段不为 None

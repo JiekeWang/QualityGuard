@@ -1,9 +1,9 @@
 """
 测试执行管理API
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func, delete
 from typing import Optional, List, Any, Dict, Tuple
 from datetime import datetime
 import json
@@ -14,10 +14,17 @@ import asyncio
 from app.core.database import get_db
 from app.core.dependencies import get_current_active_user
 from app.models.test_execution import TestExecution, ExecutionStatus
+from app.models.test_data_config import TestDataConfig, TestCaseTestDataConfig
 from app.models.user import User
 from app.models.environment import Environment
 from app.schemas.test_execution import TestExecutionCreate, TestExecutionResponse
 from app.services.report_service import ReportService
+from pydantic import BaseModel
+
+
+class BatchDeleteExecutionRequest(BaseModel):
+    """批量删除测试执行请求模型"""
+    execution_ids: List[int]
 
 router = APIRouter()
 
@@ -116,6 +123,36 @@ async def _execute_single_data_driven_test(
         执行结果
     """
     import asyncio
+    
+    # 如果配置了 token_config 且变量池中没有 token，先获取 token
+    lines.append(f"[调试] token_config 检查: {token_config is not None}, variable_pool: {variable_pool is not None}")
+    if token_config:
+        import json
+        lines.append(f"[调试] token_config 内容: {json.dumps(token_config, ensure_ascii=False)}")
+    if token_config and variable_pool is not None:
+        # 检查是否需要获取 token（如果变量池中没有 token 名称对应的变量）
+        extractors = token_config.get("extractors", [])
+        lines.append(f"[调试] extractors: {extractors}")
+        if extractors:
+            token_name = extractors[0].get("name", "token")
+            lines.append(f"[调试] token_name: {token_name}, variable_pool 中是否有: {token_name in variable_pool}")
+            # 如果变量池中没有 token，先获取
+            if token_name not in variable_pool:
+                lines.append(f"\n🔑 首次获取 Token ({token_name})...")
+                success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                if success:
+                    lines.append(f"✓ {message}")
+                else:
+                    lines.append(f"⚠ {message}（将在请求失败时重试）")
+            else:
+                lines.append(f"[调试] Token ({token_name}) 已存在于变量池中")
+        else:
+            lines.append(f"[警告] token_config 存在但 extractors 为空，无法获取 token")
+    else:
+        if not token_config:
+            lines.append(f"[调试] token_config 未配置")
+        if variable_pool is None:
+            lines.append(f"[警告] variable_pool 为 None")
     
     # 合并变量池到测试数据中，使提取的变量可以在请求中使用
     if variable_pool:
@@ -289,24 +326,69 @@ async def _execute_single_data_driven_test(
     max_retries = 1  # Token 刷新后最多重试 1 次
     retry_count = 0
     
+    # 辅助函数：替换变量
+    def replace_variables_in_value(value: Any, var_pool: Dict[str, Any]) -> Any:
+        """在值中替换变量"""
+        import re
+        if isinstance(value, dict):
+            return {k: replace_variables_in_value(v, var_pool) for k, v in value.items()}
+        elif isinstance(value, list):
+            return [replace_variables_in_value(item, var_pool) for item in value]
+        elif isinstance(value, str) and "${" in value:
+            def replacer(match):
+                key = match.group(1)
+                return str(var_pool.get(key, match.group(0)))
+            return re.sub(r'\$\{(\w+)\}', replacer, value)
+        else:
+            return value
+    
     while retry_count <= max_retries:
         try:
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-                # 每次请求前，如果有变量池，需要重新应用变量（因为 token 可能已更新）
-                if retry_count > 0 and variable_pool:
-                    # 重新构建请求头，应用更新后的变量
+                # 每次请求前，如果有变量池，需要应用变量（第一次请求和重试都需要）
+                if variable_pool:
+                    # 重新构建请求头、参数、body，应用变量
                     headers = request_info.get("headers", {})
+                    params = request_info.get("params", {})
+                    body = request_info.get("body")
+                    
+                    # 调试：检查变量池中的token
+                    token_vars = {k: "已设置" for k in variable_pool.keys() if 'token' in k.lower() or 'auth' in k.lower()}
+                    if token_vars:
+                        lines.append(f"[调试] 变量池中的Token变量: {list(token_vars.keys())}")
+                    else:
+                        lines.append(f"[调试] 变量池中没有Token变量，当前变量: {list(variable_pool.keys())}")
+                    
+                    # 替换 headers 中的变量
                     if isinstance(headers, dict):
-                        # 替换 headers 中的变量
+                        # 检查headers中是否有变量占位符
+                        has_vars = any(isinstance(v, str) and "${" in v for v in headers.values())
+                        if has_vars:
+                            lines.append(f"[调试] 检测到headers中有变量占位符，开始替换...")
+                        headers = replace_variables_in_value(headers, variable_pool)
+                        # 检查替换后的headers
+                        if has_vars:
+                            still_has_vars = any(isinstance(v, str) and "${" in v for v in headers.values())
+                            if still_has_vars:
+                                lines.append(f"[警告] headers中仍有未替换的变量: {[k for k, v in headers.items() if isinstance(v, str) and '${' in v]}")
+                            else:
+                                lines.append(f"[调试] headers变量替换成功")
+                    
+                    # 替换 params 中的变量
+                    if isinstance(params, dict):
+                        params = replace_variables_in_value(params, variable_pool)
+                    
+                    # 替换 body 中的变量
+                    if body is not None:
+                        body = replace_variables_in_value(body, variable_pool)
+                    
+                    # 替换 URL 中的变量
+                    if isinstance(url, str) and "${" in url:
                         import re
                         def replacer(match):
                             key = match.group(1)
                             return str(variable_pool.get(key, match.group(0)))
-                        
-                        headers = {
-                            k: re.sub(r'\$\{(\w+)\}', replacer, str(v)) if isinstance(v, str) else v
-                            for k, v in headers.items()
-                        }
+                        url = re.sub(r'\$\{(\w+)\}', replacer, url)
                 
                 method = (request_info.get("method") or "GET").upper()
                 if method in ("GET", "DELETE"):
@@ -329,7 +411,7 @@ async def _execute_single_data_driven_test(
                     retry_status_codes = token_config.get("retry_status_codes", [401, 403])
                     if http_status in retry_status_codes and retry_count < max_retries:
                         lines.append(f"\n⚠ 检测到状态码 {http_status}，尝试刷新 Token...")
-                        success, message = await _refresh_token(token_config, base_url, variable_pool)
+                        success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
                         if success:
                             lines.append(f"✓ {message}")
                             retry_count += 1
@@ -824,10 +906,33 @@ def _smart_match(actual: Any, expected: str) -> bool:
     return False
 
 
+def _normalize_token(token: str, add_bearer: bool = True) -> str:
+    """规范化 token，自动添加 Bearer 前缀（如果需要）
+    
+    Args:
+        token: 原始 token 字符串
+        add_bearer: 是否自动添加 Bearer 前缀（如果还没有）
+    
+    Returns:
+        规范化后的 token
+    """
+    if not token:
+        return token
+    
+    token = token.strip()
+    
+    # 如果配置了自动添加 Bearer，且 token 还没有 Bearer 前缀
+    if add_bearer and not token.lower().startswith('bearer '):
+        return f"Bearer {token}"
+    
+    return token
+
+
 async def _refresh_token(
     token_config: Dict[str, Any],
     base_url: str,
-    variable_pool: Dict[str, Any]
+    variable_pool: Dict[str, Any],
+    lines: Optional[List[str]] = None
 ) -> Tuple[bool, str]:
     """刷新 Token
     
@@ -845,10 +950,14 @@ async def _refresh_token(
             }
         base_url: 基础 URL
         variable_pool: 变量池，用于存储提取的 token
+        lines: 日志列表（可选）
     
     Returns:
         (是否成功, 错误信息)
     """
+    # 检查是否需要自动添加 Bearer 前缀（默认启用）
+    add_bearer_prefix = token_config.get("add_bearer_prefix", True)
+    
     try:
         url = token_config.get("url", "")
         if not url:
@@ -865,46 +974,196 @@ async def _refresh_token(
         body = token_config.get("body", {})
         params = token_config.get("params", {})
         
-        # 发送请求获取 token
-        async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+        # 检查 Content-Type，决定使用 json 还是 data（表单数据）
+        content_type = ""
+        if isinstance(headers, dict):
+            for key, value in headers.items():
+                if key.lower() == "content-type":
+                    content_type = str(value).lower()
+                    break
+        
+        # 发送请求获取 token（跟随重定向）
+        async with httpx.AsyncClient(timeout=30.0, verify=False, follow_redirects=True) as client:
             if method in ("GET", "DELETE"):
                 resp = await client.request(method, url, headers=headers, params=params)
             else:
-                resp = await client.request(
-                    method, url, headers=headers, params=params, json=body
-                )
+                # 如果是表单数据格式，使用 data；否则使用 json
+                if content_type and "application/x-www-form-urlencoded" in content_type:
+                    # 表单数据格式
+                    resp = await client.request(
+                        method, url, headers=headers, params=params, data=body
+                    )
+                else:
+                    # JSON 格式（默认）
+                    resp = await client.request(
+                        method, url, headers=headers, params=params, json=body
+                    )
             
-            if resp.status_code != 200:
-                return False, f"Token 接口返回非 200 状态码: {resp.status_code}"
+            # 接受 2xx 状态码（包括 200, 201, 302 重定向后的最终响应等）
+            if not (200 <= resp.status_code < 300):
+                # 记录响应信息以便调试
+                response_preview = resp.text[:500] if resp.text else "(空响应)"
+                return False, f"Token 接口返回非 2xx 状态码: {resp.status_code}，响应预览: {response_preview}"
             
             # 解析响应
             response_text = resp.text
+            response_json = None
             try:
                 response_json = resp.json()
             except:
-                return False, "Token 接口响应不是有效的 JSON"
+                # 如果不是 JSON，记录响应信息
+                pass
+            
+            # 记录响应信息（用于调试）
+            response_headers = dict(resp.headers)
+            if lines is not None:
+                lines.append(f"[调试] Token 接口响应状态码: {resp.status_code}")
+                lines.append(f"[调试] Token 接口响应头: {json.dumps(response_headers, ensure_ascii=False)}")
+                if response_json:
+                    lines.append(f"[调试] Token 接口响应 JSON: {json.dumps(response_json, ensure_ascii=False)}")
+                else:
+                    lines.append(f"[调试] Token 接口响应文本（前500字符）: {response_text[:500]}")
             
             # 提取 token
             extractors = token_config.get("extractors", [])
             if not extractors:
                 return False, "Token 配置缺少 extractors 字段"
             
-            updated_pool, extract_logs = _process_extractors(
-                extractors,
-                response_json,
-                response_text,
-                variable_pool
-            )
-            
-            # 更新变量池
-            variable_pool.update(updated_pool)
-            
-            # 检查是否成功提取了 token
             token_name = extractors[0].get("name", "token")
-            if token_name in variable_pool:
-                return True, f"Token 刷新成功: {token_name}"
-            else:
-                return False, "Token 提取失败"
+            
+            # 如果响应是 JSON，使用 JSONPath 提取
+            if response_json is not None:
+                updated_pool, extract_logs = _process_extractors(
+                    extractors,
+                    response_json,
+                    response_text,
+                    variable_pool
+                )
+                
+                # 更新变量池
+                variable_pool.update(updated_pool)
+                
+                # 检查是否成功提取了 token，并规范化（添加 Bearer 前缀）
+                if token_name in variable_pool:
+                    variable_pool[token_name] = _normalize_token(variable_pool[token_name], add_bearer_prefix)
+                    return True, f"Token 刷新成功: {token_name}"
+            
+            # 如果 JSON 提取失败，尝试从响应头（Cookie）中提取
+            if token_name not in variable_pool:
+                # 检查 Set-Cookie 头
+                set_cookie = resp.headers.get("Set-Cookie", "")
+                if set_cookie:
+                    if lines is not None:
+                        lines.append(f"[调试] 尝试从 Set-Cookie 中提取 token: {set_cookie[:200]}")
+                    # 尝试从 Cookie 中提取 token（格式：token=xxx; 或 access_token=xxx;）
+                    import re
+                    cookie_patterns = [
+                        r'["\']?token["\']?\s*=\s*([^;,\s]+)',
+                        r'["\']?access_token["\']?\s*=\s*([^;,\s]+)',
+                        r'["\']?accessToken["\']?\s*=\s*([^;,\s]+)',
+                    ]
+                    for pattern in cookie_patterns:
+                        match = re.search(pattern, set_cookie, re.IGNORECASE)
+                        if match:
+                            extracted_token = match.group(1)
+                            if lines is not None:
+                                lines.append(f"[调试] 从 Set-Cookie 中提取到 token")
+                            variable_pool[token_name] = _normalize_token(extracted_token, add_bearer_prefix)
+                            return True, f"Token 已从 Set-Cookie 中提取: {token_name}"
+                
+                # 检查 httpx 的 cookies 对象（可能包含多个 cookie）
+                if hasattr(resp, 'cookies') and resp.cookies:
+                    if lines is not None:
+                        lines.append(f"[调试] 检查 httpx cookies: {dict(resp.cookies)}")
+                    import re
+                    # 尝试从 cookies 中查找 token
+                    for cookie_name, cookie_value in resp.cookies.items():
+                        cookie_name_lower = cookie_name.lower()
+                        if 'token' in cookie_name_lower or 'auth' in cookie_name_lower:
+                            if lines is not None:
+                                lines.append(f"[调试] 从 cookies 中找到可能的 token: {cookie_name}={cookie_value[:50]}...")
+                            variable_pool[token_name] = _normalize_token(str(cookie_value), add_bearer_prefix)
+                            return True, f"Token 已从 cookies 中提取: {cookie_name}"
+                
+                # 检查最终 URL（重定向后的 URL 可能包含 token）
+                final_url = str(resp.url)
+                if lines is not None:
+                    lines.append(f"[调试] 最终 URL: {final_url}")
+                # 从 URL 参数中提取 token（支持 Token、token、access_token）
+                import re
+                from urllib.parse import unquote
+                url_token_match = re.search(r'(?:Token|token|access_token)=([^&]+)', final_url, re.IGNORECASE)
+                if url_token_match:
+                    extracted_token = url_token_match.group(1)
+                    # URL 解码
+                    try:
+                        extracted_token = unquote(extracted_token)
+                    except:
+                        pass
+                    if lines is not None:
+                        lines.append(f"[调试] 从最终 URL 参数中提取到 token")
+                    variable_pool[token_name] = _normalize_token(extracted_token, add_bearer_prefix)
+                    return True, f"Token 已从最终 URL 参数中提取: {token_name}"
+            
+            # 如果 JSON 和 Cookie 都失败，尝试从响应文本中提取
+            if token_name not in variable_pool and response_text:
+                import re
+                from urllib.parse import unquote
+                
+                # 优先处理 HTML 重定向链接中的 token（如 <a href="/Help?Token=xxx">）
+                # 这是 ASP.NET 常见的重定向方式
+                href_patterns = [
+                    r'<a[^>]*href=["\']([^"\']*[?&]Token=([^&"\']+))["\']',  # <a href="/Help?Token=xxx">
+                    r'<a[^>]*href=["\']([^"\']*[?&]token=([^&"\']+))["\']',  # <a href="/Help?token=xxx">
+                    r'<a[^>]*href=["\']([^"\']*[?&]access_token=([^&"\']+))["\']',  # <a href="/Help?access_token=xxx">
+                ]
+                for pattern in href_patterns:
+                    match = re.search(pattern, response_text, re.IGNORECASE)
+                    if match:
+                        extracted_token = match.group(2)  # 提取 token 参数值
+                        # URL 解码
+                        try:
+                            extracted_token = unquote(extracted_token)
+                        except:
+                            pass
+                        if lines is not None:
+                            lines.append(f"[调试] 从 HTML 重定向链接中提取到 token（使用模式 {pattern}）")
+                        variable_pool[token_name] = _normalize_token(extracted_token, add_bearer_prefix)
+                        return True, f"Token 已从 HTML 重定向链接中提取: {token_name}"
+                
+                # 常见的 token 格式：token: "xxx", "token": "xxx", token=xxx
+                # 也支持 HTML 中的 script 标签、隐藏字段等
+                token_patterns = [
+                    # JSON 格式：{"token": "xxx"}, token: "xxx"
+                    r'["\']?token["\']?\s*[:=]\s*["\']([^"\']+)["\']',
+                    r'["\']?access_token["\']?\s*[:=]\s*["\']([^"\']+)["\']',
+                    r'["\']?accessToken["\']?\s*[:=]\s*["\']([^"\']+)["\']',
+                    # HTML 隐藏字段：<input type="hidden" name="token" value="xxx">
+                    r'<input[^>]*name=["\']?token["\']?[^>]*value=["\']([^"\']+)["\']',
+                    # JavaScript 变量：var token = "xxx"; const token = "xxx"; let token = "xxx"
+                    r'(?:var|const|let)\s+token\s*=\s*["\']([^"\']+)["\']',
+                    r'(?:var|const|let)\s+accessToken\s*=\s*["\']([^"\']+)["\']',
+                    # URL 参数格式：token=xxx（在文本中）
+                    r'(?:^|[?&])Token=([^&\s"\']+)',  # 注意：Token 首字母大写（ASP.NET 常见）
+                    r'(?:^|[?&])token=([^&\s"\']+)',
+                    r'(?:^|[?&])access_token=([^&\s"\']+)',
+                ]
+                for pattern in token_patterns:
+                    match = re.search(pattern, response_text, re.IGNORECASE)
+                    if match:
+                        extracted_token = match.group(1)
+                        # URL 解码（如果是 URL 编码的）
+                        try:
+                            extracted_token = unquote(extracted_token)
+                        except:
+                            pass
+                        if lines is not None:
+                            lines.append(f"[调试] 从响应文本中提取到 token（使用模式 {pattern}）")
+                        variable_pool[token_name] = _normalize_token(extracted_token, add_bearer_prefix)
+                        return True, f"Token 已从响应文本中提取: {token_name}"
+            
+            # 如果所有方法都失败，返回错误
+            return False, f"Token 提取失败。已尝试：JSONPath、Set-Cookie、响应文本。状态码: {resp.status_code}"
                 
     except Exception as e:
         return False, f"Token 刷新失败: {str(e)}"
@@ -1519,7 +1778,6 @@ def _evaluate_assertions(
                     passed = expected in actual
                 elif isinstance(actual, dict):
                     # 如果actual是对象，检查expected字符串是否在JSON序列化后的结果中
-                    import json
                     actual_str = json.dumps(actual, ensure_ascii=False)
                     passed = str(expected) in actual_str
                 else:
@@ -1598,18 +1856,19 @@ def _evaluate_assertions(
     return all_passed, results
 
 
-@router.get("/", response_model=List[TestExecutionResponse])
+@router.get("/")
 async def get_test_executions(
     project_id: Optional[int] = Query(None, description="项目ID"),
     test_case_id: Optional[int] = Query(None, description="测试用例ID"),
     status: Optional[ExecutionStatus] = Query(None, description="执行状态"),
+    schedule_mode: Optional[str] = Query(None, description="定时执行模式（schedule表示只返回定时执行的任务）"),
+    search: Optional[str] = Query(None, description="搜索关键词（支持执行ID、用例ID、环境）"),
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=1000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_active_user)
 ):
-    """获取测试执行列表"""
-    query = select(TestExecution)
+    """获取测试执行列表（支持分页和搜索）"""
     conditions = []
     
     if project_id:
@@ -1619,14 +1878,54 @@ async def get_test_executions(
     if status:
         conditions.append(TestExecution.status == status)
     
+    # 如果指定了schedule_mode，只返回定时执行的任务
+    if schedule_mode == "schedule":
+        # 需要检查config中的scheduling.mode是否为schedule
+        # 使用 PostgreSQL 的 JSON 操作符
+        from sqlalchemy import text
+        # config 字段是 JSON 类型，使用 -> 获取对象，使用 ->> 获取文本值
+        # 处理 config 可能为 NULL 的情况
+        conditions.append(
+            text("config IS NOT NULL AND config->'scheduling' IS NOT NULL AND (config->'scheduling'->>'mode') = 'schedule'")
+        )
+    
+    # 搜索功能：支持按执行ID、用例ID、环境搜索
+    if search and search.strip():
+        search_term = search.strip()
+        # 尝试将搜索词解析为数字（可能是ID）
+        try:
+            search_id = int(search_term)
+            # 如果是数字，搜索执行ID或用例ID
+            conditions.append(
+                (TestExecution.id == search_id) | 
+                (TestExecution.test_case_id == search_id)
+            )
+        except ValueError:
+            # 如果不是数字，搜索环境字段
+            conditions.append(TestExecution.environment.ilike(f'%{search_term}%'))
+    
+    # 计算总数
+    count_query = select(func.count(TestExecution.id))
+    if conditions:
+        count_query = count_query.where(and_(*conditions))
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+    
+    # 查询列表
+    query = select(TestExecution)
     if conditions:
         query = query.where(and_(*conditions))
-    
     query = query.offset(skip).limit(limit).order_by(TestExecution.created_at.desc())
     
     result = await db.execute(query)
     executions = result.scalars().all()
-    return executions
+    
+    return {
+        "items": [TestExecutionResponse.model_validate(exec) for exec in executions],
+        "total": total,
+        "skip": skip,
+        "limit": limit
+    }
 
 
 @router.post("/", response_model=TestExecutionResponse, status_code=status.HTTP_201_CREATED)
@@ -1657,22 +1956,43 @@ async def create_test_execution(
         )
 
     # 检查是否启用数据驱动
+    # 优先从关联的TestDataConfig读取，向后兼容旧的data_driver字段
     is_data_driven = test_case.is_data_driven or False
-    data_driver_config = test_case.data_driver or {}
     test_data_list: List[Dict[str, Any]] = []
     
-    if is_data_driven and data_driver_config:
-        # 支持多种数据源：直接数组、数据模板、数据源ID
-        if isinstance(data_driver_config.get("data"), list):
-            test_data_list = data_driver_config["data"]
-        elif data_driver_config.get("data_template_id"):
-            # TODO: 从数据模板加载数据
-            test_data_list = []
-        elif data_driver_config.get("data_source_id"):
-            # TODO: 从数据源加载数据
-            test_data_list = []
+    if is_data_driven:
+        # 1. 优先从关联的TestDataConfig读取
+        test_data_config_relations_result = await db.execute(
+            select(TestCaseTestDataConfig).where(
+                TestCaseTestDataConfig.test_case_id == test_case.id
+            )
+        )
+        test_data_config_relations = test_data_config_relations_result.scalars().all()
+        
+        if test_data_config_relations:
+            # 如果有关联的配置，合并所有配置的数据
+            for relation in test_data_config_relations:
+                config = await db.get(TestDataConfig, relation.test_data_config_id)
+                if config and config.is_active and config.data:
+                    # 转换配置数据格式（确保是字典格式）
+                    for data_item in config.data:
+                        if isinstance(data_item, dict):
+                            test_data_list.append(data_item)
         else:
-            test_data_list = []
+            # 2. 向后兼容：从旧的data_driver字段读取
+            data_driver_config = test_case.data_driver or {}
+            if data_driver_config:
+                # 支持多种数据源：直接数组、数据模板、数据源ID
+                if isinstance(data_driver_config.get("data"), list):
+                    test_data_list = data_driver_config["data"]
+                elif data_driver_config.get("data_template_id"):
+                    # TODO: 从数据模板加载数据
+                    test_data_list = []
+                elif data_driver_config.get("data_source_id"):
+                    # TODO: 从数据源加载数据
+                    test_data_list = []
+                else:
+                    test_data_list = []
     
     # 如果没有数据驱动或数据为空，使用空字典作为默认数据
     if not test_data_list:
@@ -1714,29 +2034,178 @@ async def create_test_execution(
     # 初始化变量池，用于存储提取的变量
     variable_pool: Dict[str, Any] = {}
 
+    # 检查是否为定时执行
+    scheduling = execution.config.get("scheduling", {}) if execution.config else {}
+    is_scheduled = scheduling.get("mode") == "schedule"
+    
     # 创建测试执行
-    new_execution = TestExecution(
-        **execution.dict(),
-        status=ExecutionStatus.RUNNING,
-        started_at=datetime.utcnow(),
-        logs="测试执行已启动",
-        result=None,
-    )
+    if is_scheduled:
+        # 定时执行：状态设为pending，不立即执行
+        new_execution = TestExecution(
+            **execution.dict(),
+            status=ExecutionStatus.PENDING,
+            started_at=None,
+            logs="定时任务已创建，等待执行",
+            result=None,
+        )
+    else:
+        # 立即执行：状态设为running，立即执行
+        new_execution = TestExecution(
+            **execution.dict(),
+            status=ExecutionStatus.RUNNING,
+            started_at=datetime.utcnow(),
+            logs="测试执行已启动",
+            result=None,
+        )
     
     db.add(new_execution)
     await db.commit()
     await db.refresh(new_execution)
+    
+    # 如果是定时执行，直接返回，不执行
+    if is_scheduled:
+        return TestExecutionResponse.model_validate(new_execution)
+
+    # 执行测试（立即执行）
+    await _execute_pending_test_execution(new_execution, db)
+    await db.refresh(new_execution)
+    return TestExecutionResponse.model_validate(new_execution)
+
+
+async def _execute_pending_test_execution(execution: TestExecution, db: AsyncSession):
+    """执行已创建的测试执行（用于定时任务调度器）"""
+    # 获取测试用例
+    from app.models.test_case import TestCase
+    case_result = await db.execute(select(TestCase).where(TestCase.id == execution.test_case_id))
+    test_case = case_result.scalar_one_or_none()
+    if not test_case:
+        execution.status = ExecutionStatus.ERROR
+        execution.logs = "测试用例不存在"
+        execution.finished_at = datetime.utcnow()
+        await db.commit()
+        return
+    
+    # 获取项目
+    from app.models.project import Project
+    project_result = await db.execute(select(Project).where(Project.id == execution.project_id))
+    project = project_result.scalar_one_or_none()
+    if not project:
+        execution.status = ExecutionStatus.ERROR
+        execution.logs = "项目不存在"
+        execution.finished_at = datetime.utcnow()
+        await db.commit()
+        return
+
+    # 检查是否启用数据驱动
+    is_data_driven = test_case.is_data_driven or False
+    test_data_list: List[Dict[str, Any]] = []
+    
+    if is_data_driven:
+        # 1. 优先从关联的TestDataConfig读取
+        test_data_config_relations_result = await db.execute(
+            select(TestCaseTestDataConfig).where(
+                TestCaseTestDataConfig.test_case_id == test_case.id
+            )
+        )
+        test_data_config_relations = test_data_config_relations_result.scalars().all()
+        
+        if test_data_config_relations:
+            for relation in test_data_config_relations:
+                config = await db.get(TestDataConfig, relation.test_data_config_id)
+                if config and config.is_active and config.data:
+                    for data_item in config.data:
+                        if isinstance(data_item, dict):
+                            test_data_list.append(data_item)
+        else:
+            # 2. 向后兼容：从旧的data_driver字段读取
+            data_driver_config = test_case.data_driver or {}
+            if data_driver_config:
+                if isinstance(data_driver_config.get("data"), list):
+                    test_data_list = data_driver_config["data"]
+                elif data_driver_config.get("data_template_id"):
+                    test_data_list = []
+                elif data_driver_config.get("data_source_id"):
+                    test_data_list = []
+                else:
+                    test_data_list = []
+    
+    if not test_data_list:
+        test_data_list = [{}]
+
+    # 从测试用例配置中提取请求信息
+    request_info_template: Dict[str, Any] = {}
+    request_cfg: Dict[str, Any] = {}
+    assertions_cfg: List[Dict[str, Any]] = []
+    extractors_cfg: List[Dict[str, Any]] = []
+    token_config: Optional[Dict[str, Any]] = None
+    
+    if isinstance(test_case.config, dict):
+        request_cfg = test_case.config.get("request") or {}
+        interface_cfg = test_case.config.get("interface") or {}
+        raw_assertions = test_case.config.get("assertions") or []
+        if isinstance(raw_assertions, list):
+            assertions_cfg = raw_assertions
+        
+        raw_extractors = test_case.config.get("extractors") or []
+        if isinstance(raw_extractors, list):
+            extractors_cfg = raw_extractors
+        
+        token_config = test_case.config.get("token_config")
+        
+        # 从execution.config中获取token_config_id，如果存在则从TokenConfig表获取
+        if execution.config and execution.config.get("token_config_id"):
+            from app.models.token_config import TokenConfig
+            token_config_obj = await db.get(TokenConfig, execution.config.get("token_config_id"))
+            if token_config_obj and token_config_obj.is_active:
+                token_config = token_config_obj.config
+
+        method = interface_cfg.get("method") or request_cfg.get("method") or "GET"
+        path = interface_cfg.get("path") or request_cfg.get("path") or ""
+
+        request_info_template = {
+            "method": method,
+            "path": path,
+            "headers": request_cfg.get("headers") or {},
+            "params": request_cfg.get("params") or {},
+            "path_params": request_cfg.get("path_params") or {},
+            "body": request_cfg.get("body") or request_cfg.get("data") or None,
+        }
+    
+    # 初始化变量池
+    variable_pool: Dict[str, Any] = {}
 
     # 构造真实 HTTP 请求（当前同步执行单接口请求）
     lines = []
     lines.append("== 测试执行已启动 ==")
-    lines.append(f"执行ID: {new_execution.id}")
+    lines.append(f"执行ID: {execution.id}")
     lines.append(f"项目: {project.id} - {project.name}")
     lines.append(f"测试用例ID: {test_case.id} - {test_case.name}")
     if execution.environment:
         lines.append(f"执行环境: {execution.environment}")
     if is_data_driven:
         lines.append(f"数据驱动模式: 启用，共 {len(test_data_list)} 组测试数据")
+    lines.append("")
+    
+    # 调试：显示 config 的完整内容（用于排查 token_config 问题）
+    if isinstance(test_case.config, dict):
+        import json
+        config_keys = list(test_case.config.keys())
+        lines.append(f"[调试] test_case.config 的键: {config_keys}")
+        if "token_config" in test_case.config:
+            lines.append(f"[调试] token_config 存在，内容: {json.dumps(test_case.config.get('token_config'), ensure_ascii=False)}")
+        else:
+            lines.append(f"[调试] token_config 不存在于 config 中")
+            # 显示 config 的完整内容（前500字符，避免日志过长）
+            config_str = json.dumps(test_case.config, ensure_ascii=False)
+            if len(config_str) > 500:
+                config_str = config_str[:500] + "..."
+            lines.append(f"[调试] config 完整内容（前500字符）: {config_str}")
+        if token_config:
+            lines.append(f"[调试] 成功读取 token_config: {json.dumps(token_config, ensure_ascii=False)}")
+        else:
+            lines.append(f"[调试] token_config 为 None 或不存在")
+    else:
+        lines.append(f"[调试] test_case.config 不是字典类型: {type(test_case.config)}")
     lines.append("")
 
     # 计算目标 URL（优先使用环境 base_url）
@@ -1822,8 +2291,40 @@ async def create_test_execution(
         lines.append(f"即将执行 {len(test_data_list)} 组测试数据")
         lines.append("")
         
+        # 在串行执行开始前，如果配置了 token_config 且变量池中没有 token，先获取 token
+        lines.append(f"[调试] token_config 检查: {token_config is not None}, variable_pool: {variable_pool is not None}")
+        if token_config:
+            lines.append(f"[调试] token_config 内容: {json.dumps(token_config, ensure_ascii=False)}")
+        if token_config and variable_pool is not None:
+            extractors = token_config.get("extractors", [])
+            lines.append(f"[调试] extractors: {extractors}")
+            if extractors:
+                token_name = extractors[0].get("name", "token")
+                lines.append(f"[调试] token_name: {token_name}, variable_pool 中是否有: {token_name in variable_pool}")
+                if token_name not in variable_pool:
+                    lines.append(f"\n🔑 首次获取 Token ({token_name})...")
+                    success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                    if success:
+                        lines.append(f"✓ {message}")
+                    else:
+                        lines.append(f"⚠ {message}（将在请求失败时重试）")
+                else:
+                    lines.append(f"[调试] Token ({token_name}) 已存在于变量池中")
+            else:
+                lines.append(f"[警告] token_config 存在但 extractors 为空，无法获取 token")
+        else:
+            if not token_config:
+                lines.append(f"[调试] token_config 未配置")
+            if variable_pool is None:
+                lines.append(f"[警告] variable_pool 为 None")
+        
         for data_index, test_data in enumerate(test_data_list, start=1):
             lines.append(f"[调试] 开始执行第 {data_index}/{len(test_data_list)} 组数据")
+            
+            # 合并变量池到测试数据中，使提取的变量可以在请求中使用
+            if variable_pool:
+                merged_data = {**variable_pool, **test_data}
+                test_data = merged_data
             
             # 新的数据驱动逻辑：每行数据包含 request 和 assertions
             # 如果测试数据中有 request 字段，使用它作为请求参数（可以覆盖模板）
@@ -2047,6 +2548,44 @@ async def create_test_execution(
                 params.update(request_info["params"])
 
             body = request_info.get("body")
+            
+            # 应用变量池中的变量到 headers、params、body、url
+            if variable_pool:
+                # 辅助函数：替换变量
+                def replace_vars_in_value(value: Any, var_pool: Dict[str, Any]) -> Any:
+                    """在值中替换变量"""
+                    import re
+                    if isinstance(value, dict):
+                        return {k: replace_vars_in_value(v, var_pool) for k, v in value.items()}
+                    elif isinstance(value, list):
+                        return [replace_vars_in_value(item, var_pool) for item in value]
+                    elif isinstance(value, str) and "${" in value:
+                        def replacer(match):
+                            key = match.group(1)
+                            return str(var_pool.get(key, match.group(0)))
+                        return re.sub(r'\$\{(\w+)\}', replacer, value)
+                    else:
+                        return value
+                
+                # 替换 headers 中的变量
+                if isinstance(headers, dict):
+                    headers = replace_vars_in_value(headers, variable_pool)
+                
+                # 替换 params 中的变量
+                if isinstance(params, dict):
+                    params = replace_vars_in_value(params, variable_pool)
+                
+                # 替换 body 中的变量
+                if body is not None:
+                    body = replace_vars_in_value(body, variable_pool)
+                
+                # 替换 URL 中的变量
+                if isinstance(url, str) and "${" in url:
+                    import re
+                    def replacer(match):
+                        key = match.group(1)
+                        return str(variable_pool.get(key, match.group(0)))
+                    url = re.sub(r'\$\{(\w+)\}', replacer, url)
 
             if is_data_driven:
                 lines.append(f"== 数据驱动执行 [{data_index}/{len(test_data_list)}] ==")
@@ -2059,63 +2598,180 @@ async def create_test_execution(
                     lines.append("✓ 使用测试数据中的断言配置")
                 lines.append("")
             
+            # 显示变量池信息（调试用）
+            if variable_pool:
+                lines.append("== 变量池信息 ==")
+                # 只显示token相关的变量，避免泄露敏感信息
+                token_vars = {k: ("***已设置***" if k in variable_pool else "未设置") for k in variable_pool.keys() if 'token' in k.lower() or 'auth' in k.lower()}
+                if token_vars:
+                    lines.append(f"Token相关变量: {json.dumps(token_vars, ensure_ascii=False, indent=2)}")
+                else:
+                    lines.append(f"变量池中的变量: {list(variable_pool.keys())}")
+                lines.append("")
+            
             if request_info:
                 lines.append("== 请求信息 ==")
                 lines.append(f"请求方法: {request_info.get('method')}")
                 lines.append(f"请求URL: {url or (request_info.get('path') or '')}")
-                if request_info.get("headers"):
-                    lines.append("请求头:")
+                # 显示替换后的headers（实际发送的headers）
+                if headers:
+                    lines.append("请求头（已应用变量替换）:")
+                    lines.append(json.dumps(headers, ensure_ascii=False, indent=2))
+                elif request_info.get("headers"):
+                    lines.append("请求头（原始，未替换）:")
                     lines.append(json.dumps(request_info["headers"], ensure_ascii=False, indent=2))
-                if request_info.get("params"):
-                    lines.append("Query 参数:")
+                if params:
+                    lines.append("Query 参数（已应用变量替换）:")
+                    lines.append(json.dumps(params, ensure_ascii=False, indent=2))
+                elif request_info.get("params"):
+                    lines.append("Query 参数（原始，未替换）:")
                     lines.append(json.dumps(request_info["params"], ensure_ascii=False, indent=2))
                 if request_info.get("path_params"):
                     lines.append("Path 参数:")
                     lines.append(json.dumps(request_info["path_params"], ensure_ascii=False, indent=2))
                 if body is not None:
-                    lines.append("请求 Body:")
+                    lines.append("请求 Body（已应用变量替换）:")
                     lines.append(json.dumps(body, ensure_ascii=False, indent=2))
                 lines.append("")
 
-            # 执行 HTTP 请求
+            # 执行 HTTP 请求（支持 Token 自动刷新）
             http_status: Optional[int] = None
             response_text: Optional[str] = None
             response_json: Optional[Any] = None
             error_message: Optional[str] = None
+            max_retries = 1  # Token 刷新后最多重试 1 次
+            retry_count = 0
             
-            try:
-                async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
-                    method = (request_info.get("method") or "GET").upper()
-                    if method in ("GET", "DELETE"):
-                        resp = await client.request(method, url, headers=headers, params=params)
-                    else:
-                        resp = await client.request(
-                            method,
-                            url,
-                            headers=headers,
-                            params=params,
-                            json=body,
-                        )
-                http_status = resp.status_code
-                response_text = resp.text
+            while retry_count <= max_retries:
                 try:
-                    response_json = resp.json()
-                except Exception:
-                    response_json = None
+                    async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
+                        # 每次请求前，如果有变量池，需要应用变量（第一次请求和重试都需要）
+                        # 因为第一次请求时，headers等可能还没有被替换，或者重试时token已更新
+                        if variable_pool:
+                            # 辅助函数：替换变量
+                            def replace_vars_in_value(value: Any, var_pool: Dict[str, Any]) -> Any:
+                                """在值中替换变量"""
+                                import re
+                                if isinstance(value, dict):
+                                    return {k: replace_vars_in_value(v, var_pool) for k, v in value.items()}
+                                elif isinstance(value, list):
+                                    return [replace_vars_in_value(item, var_pool) for item in value]
+                                elif isinstance(value, str) and "${" in value:
+                                    def replacer(match):
+                                        key = match.group(1)
+                                        val = var_pool.get(key)
+                                        if val is None:
+                                            return match.group(0)  # 变量不存在，保持原样
+                                        return str(val)
+                                    return re.sub(r'\$\{(\w+)\}', replacer, value)
+                                else:
+                                    return value
+                            
+                            # 应用变量替换（确保使用最新的变量池）
+                            # 注意：headers、params、body、url 在第一次请求前已经在2112-2147行替换过了
+                            # 但这里再次替换可以确保使用最新的变量池（特别是重试时token已更新）
+                            
+                            # 调试：检查变量池中的token
+                            token_vars = {k: "已设置" for k in variable_pool.keys() if 'token' in k.lower() or 'auth' in k.lower()}
+                            if token_vars:
+                                lines.append(f"[调试] 变量池中的Token变量: {list(token_vars.keys())}")
+                            else:
+                                lines.append(f"[调试] 变量池中没有Token变量，当前变量: {list(variable_pool.keys())}")
+                            
+                            if isinstance(headers, dict):
+                                # 检查headers中是否有变量占位符
+                                has_vars = any(isinstance(v, str) and "${" in v for v in headers.values())
+                                if has_vars:
+                                    lines.append(f"[调试] 检测到headers中有变量占位符，开始替换...")
+                                headers = replace_vars_in_value(headers, variable_pool)
+                                # 检查替换后的headers
+                                if has_vars:
+                                    still_has_vars = any(isinstance(v, str) and "${" in v for v in headers.values())
+                                    if still_has_vars:
+                                        lines.append(f"[警告] headers中仍有未替换的变量: {[k for k, v in headers.items() if isinstance(v, str) and '${' in v]}")
+                                    else:
+                                        lines.append(f"[调试] headers变量替换成功")
+                            if isinstance(params, dict):
+                                params = replace_vars_in_value(params, variable_pool)
+                            if body is not None:
+                                body = replace_vars_in_value(body, variable_pool)
+                            if isinstance(url, str) and "${" in url:
+                                import re
+                                def replacer(match):
+                                    key = match.group(1)
+                                    val = variable_pool.get(key)
+                                    if val is None:
+                                        return match.group(0)
+                                    return str(val)
+                                url = re.sub(r'\$\{(\w+)\}', replacer, url)
+                        
+                        method = (request_info.get("method") or "GET").upper()
+                        if method in ("GET", "DELETE"):
+                            resp = await client.request(method, url, headers=headers, params=params)
+                        else:
+                            resp = await client.request(
+                                method,
+                                url,
+                                headers=headers,
+                                params=params,
+                                json=body,
+                            )
+                    http_status = resp.status_code
+                    response_text = resp.text
+                    try:
+                        response_json = resp.json()
+                    except Exception:
+                        response_json = None
+                    
+                    # 检查是否需要刷新 Token
+                    if token_config and variable_pool is not None:
+                        retry_status_codes = token_config.get("retry_status_codes", [401, 403])
+                        if http_status in retry_status_codes and retry_count < max_retries:
+                            lines.append(f"\n⚠ 检测到状态码 {http_status}，尝试刷新 Token...")
+                            success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                            if success:
+                                lines.append(f"✓ {message}")
+                                retry_count += 1
+                                continue  # 重试请求
+                            else:
+                                lines.append(f"✗ {message}")
+                                error_message = f"Token 刷新失败: {message}"
+                                break
+                    
+                    # 请求成功，退出循环
+                    break
 
-                lines.append("== 响应信息（真实请求） ==")
-                lines.append(f"HTTP 状态码: {http_status}")
-                if response_json is not None:
-                    lines.append("响应 Body(JSON):")
-                    lines.append(json.dumps(response_json, ensure_ascii=False, indent=2))
-                else:
-                    lines.append("响应 Body(文本):")
-                    lines.append(response_text or "")
-
-            except Exception as exc:  # noqa: BLE001
-                error_message = str(exc)
-                lines.append("== 请求执行失败 ==")
-                lines.append(f"错误信息: {error_message}")
+                except Exception as exc:  # noqa: BLE001
+                    error_message = str(exc)
+                    if retry_count >= max_retries:
+                        lines.append("== 请求执行失败 ==")
+                        lines.append(f"错误信息: {error_message}")
+                        break
+                    retry_count += 1
+            
+            # 处理变量提取（仅在第一次请求成功时）
+            if retry_count == 0 and extractors_cfg and variable_pool is not None and http_status and http_status < 400:
+                updated_pool, extract_logs = _process_extractors(
+                    extractors_cfg, 
+                    response_json, 
+                    response_text or "",
+                    variable_pool
+                )
+                # 更新变量池
+                variable_pool.update(updated_pool)
+                # 将提取日志添加到测试日志中
+                if extract_logs:
+                    lines.append("\n== 变量提取 ==")
+                    lines.extend(extract_logs)
+            
+            lines.append("== 响应信息（真实请求） ==")
+            lines.append(f"HTTP 状态码: {http_status}")
+            if response_json is not None:
+                lines.append("响应 Body(JSON):")
+                lines.append(json.dumps(response_json, ensure_ascii=False, indent=2))
+            else:
+                lines.append("响应 Body(文本):")
+                lines.append(response_text or "")
 
             # 基于断言 & HTTP 结果计算执行状态
             assertions_passed = True
@@ -2227,19 +2883,17 @@ async def create_test_execution(
         f"failed={summary['failed']}, skipped={summary['skipped']}"
     )
 
-    new_execution.logs = "\n".join(lines)
-    new_execution.status = status_value
-    new_execution.finished_at = datetime.utcnow()
-    new_execution.result = result_payload
+    execution.logs = "\n".join(lines)
+    execution.status = status_value
+    execution.finished_at = datetime.utcnow()
+    execution.result = result_payload
 
     await db.commit()
-    await db.refresh(new_execution)
+    await db.refresh(execution)
     
     # 生成对应的报告视图（当前实现为基于执行记录的动态报告，不单独落库）
     report_service = ReportService()
-    await report_service.generate_report(db=db, execution_id=new_execution.id)
-    
-    return new_execution
+    await report_service.generate_report(db=db, execution_id=execution.id)
 
 
 @router.get("/{execution_id}", response_model=TestExecutionResponse)
@@ -2282,3 +2936,107 @@ async def get_execution_logs(
         "logs": execution.logs or "",
         "status": execution.status
     }
+
+
+@router.delete("/batch", status_code=status.HTTP_204_NO_CONTENT)
+async def batch_delete_test_executions(
+    request: BatchDeleteExecutionRequest = Body(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """批量删除测试执行"""
+    execution_ids = request.execution_ids
+    if not execution_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="请提供要删除的测试执行ID列表"
+        )
+    
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id.in_(execution_ids))
+    )
+    await db.commit()
+
+
+@router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_test_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """删除单个测试执行"""
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id == execution_id)
+    )
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="测试执行不存在"
+        )
+
+
+@router.post("/trigger-scheduler-check")
+async def trigger_scheduler_check(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """手动触发调度器检查（用于调试）"""
+    try:
+        from app.services.scheduled_execution_scheduler import get_scheduler
+        scheduler = await get_scheduler()
+        await scheduler._check_and_execute_scheduled_tasks()
+        return {
+            "message": "调度器检查已完成",
+            "status": "success"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "message": f"调度器检查失败: {str(e)}",
+            "error": traceback.format_exc(),
+            "status": "error"
+        }
+
+
+@router.delete("/{execution_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_test_execution(
+    execution_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """删除单个测试执行"""
+    result = await db.execute(
+        delete(TestExecution).where(TestExecution.id == execution_id)
+    )
+    await db.commit()
+    
+    if result.rowcount == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="测试执行不存在"
+        )
+
+
+@router.post("/trigger-scheduler-check")
+async def trigger_scheduler_check(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_active_user)
+):
+    """手动触发调度器检查（用于调试）"""
+    try:
+        from app.services.scheduled_execution_scheduler import get_scheduler
+        scheduler = await get_scheduler()
+        await scheduler._check_and_execute_scheduled_tasks()
+        return {
+            "message": "调度器检查已完成",
+            "status": "success"
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "message": f"调度器检查失败: {str(e)}",
+            "error": traceback.format_exc(),
+            "status": "error"
+        }

@@ -53,6 +53,7 @@ export interface InterfaceUpdate {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD' | 'OPTIONS'
   path?: string
   description?: string
+  project_id?: number
   status?: 'active' | 'inactive' | 'deprecated'
   module?: string
   tags?: string[]

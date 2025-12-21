@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Form, Input, Button, Card, message, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -11,6 +11,8 @@ const Login: React.FC = () => {
   const dispatch = useAppDispatch()
   const { loading, error, isAuthenticated } = useAppSelector((state) => state.auth)
   const [loginForm] = Form.useForm()
+  const [displayError, setDisplayError] = useState<string | null>(null)
+  const errorTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   useEffect(() => {
     // 如果已经登录，重定向到dashboard
@@ -19,16 +21,136 @@ const Login: React.FC = () => {
     }
   }, [isAuthenticated, navigate])
 
+  // 当error状态变化时，显示错误提示3秒后自动清除
+  useEffect(() => {
+    if (error) {
+      // 清除之前的定时器（如果存在）
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current)
+        errorTimerRef.current = null
+      }
+      
+      // 直接设置错误消息
+      setDisplayError(error)
+      
+      // 启动3秒定时器，3秒后自动清除
+      errorTimerRef.current = setTimeout(() => {
+        setDisplayError(null)
+        dispatch(clearError())
+        errorTimerRef.current = null
+      }, 3000)
+    }
+    // 注意：当error为null时，不立即清除displayError，让定时器自然完成
+    // 这样即使pending状态清除了error，displayError仍然会显示3秒
+
+    // 清理函数：只在effect重新执行或组件卸载时清理
+    return () => {
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current)
+        errorTimerRef.current = null
+      }
+    }
+  }, [error, dispatch])
+
+  // 安全验证函数：防止SQL注入、XSS等攻击
+  const sanitizeInput = (input: string): string => {
+    // 移除或转义危险字符
+    return input
+      .replace(/[<>'"]/g, '') // 移除HTML标签和引号
+      .replace(/[;\\]/g, '') // 移除SQL注入常用字符
+      .trim()
+  }
+
+  // 验证用户名安全性
+  const validateUsername = (value: string): boolean => {
+    if (!value) return false
+    
+    // 长度限制
+    if (value.length > 100) return false
+    
+    // 检查是否包含危险字符（SQL注入、XSS等）
+    const dangerousPatterns = [
+      /<script/i,
+      /<\/script/i,
+      /javascript:/i,
+      /on\w+\s*=/i, // onclick, onerror等事件处理器
+      /['";\\]/,
+      /union\s+select/i,
+      /drop\s+table/i,
+      /delete\s+from/i,
+      /insert\s+into/i,
+      /update\s+set/i,
+      /exec\s*\(/i,
+      /--/,
+      /\/\*/,
+      /\*\//,
+    ]
+    
+    return !dangerousPatterns.some(pattern => pattern.test(value))
+  }
+
+  // 验证密码安全性
+  const validatePassword = (value: string): boolean => {
+    if (!value) return false
+    
+    // 密码长度限制（最小6位，最大72位，bcrypt限制）
+    if (value.length < 6 || value.length > 72) return false
+    
+    // 检查是否包含控制字符（不允许控制字符）
+    if (/[\x00-\x1F\x7F]/.test(value)) return false
+    
+    // 检查SQL注入和XSS相关的危险关键词组合（但允许单独的引号等字符）
+    const dangerousPatterns = [
+      /<script/i,
+      /<\/script/i,
+      /javascript:/i,
+      /union\s+select/i,
+      /drop\s+table/i,
+      /delete\s+from/i,
+      /insert\s+into/i,
+      /update\s+set/i,
+      /exec\s*\(/i,
+      /or\s+1\s*=\s*1/i,
+      /and\s+1\s*=\s*1/i,
+    ]
+    
+    return !dangerousPatterns.some(pattern => pattern.test(value))
+  }
+
   const onLoginFinish = async (values: { username: string; password: string }) => {
-    dispatch(clearError())
+    // 清除之前的错误提示和定时器，避免旧错误提示残留
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+      errorTimerRef.current = null
+    }
+    setDisplayError(null)
+    // 注意：不在这里调用clearError()，让pending状态自动清除error
+    // 这样可以确保错误提示的显示逻辑完全由useEffect控制
+    
+    // 安全验证
+    if (!validateUsername(values.username)) {
+      message.error('用户名包含非法字符，请检查输入')
+      return
+    }
+    
+    if (!validatePassword(values.password)) {
+      message.error('密码格式不正确，长度应在6-72位之间，且不能包含特殊字符')
+      return
+    }
+    
+    // 清理输入
+    const sanitizedValues = {
+      username: sanitizeInput(values.username),
+      password: values.password, // 密码不需要清理，因为可能需要特殊字符
+    }
+    
     try {
-      await dispatch(loginAsync(values)).unwrap()
+      await dispatch(loginAsync(sanitizedValues)).unwrap()
       message.success('登录成功')
       navigate('/dashboard')
     } catch (err: any) {
-      // 显示详细的错误信息
-      const errorMessage = err || '登录失败，请检查用户名和密码'
-      message.error(errorMessage)
+      // 错误信息会通过Redux error状态和Alert组件显示，不需要message.error
+      // 只需要记录日志即可
       console.error('登录错误:', err)
     }
   }
@@ -282,28 +404,30 @@ const Login: React.FC = () => {
           pointerEvents: 'none',
           opacity: 0.4,
         }}
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
       >
-        {/* 连接登录框的电路线 */}
+        {/* 连接登录框的电路线 - 使用viewBox坐标（0-100）而不是百分比 */}
         <path
-          d="M 50% 50% L 30% 20% M 50% 50% L 70% 30% M 50% 50% L 20% 80% M 50% 50% L 80% 70%"
+          d="M 50 50 L 30 20 M 50 50 L 70 30 M 50 50 L 20 80 M 50 50 L 80 70"
           stroke="#00d9ff"
-          strokeWidth="2"
+          strokeWidth="0.2"
           fill="none"
           className="circuit-line"
           style={{ filter: 'drop-shadow(0 0 4px #00d9ff)' }}
         />
-        {/* 电路节点 */}
+        {/* 电路节点 - 使用viewBox坐标 */}
         {[
-          { x: '30%', y: '20%' },
-          { x: '70%', y: '30%' },
-          { x: '20%', y: '80%' },
-          { x: '80%', y: '70%' },
+          { x: 30, y: 20 },
+          { x: 70, y: 30 },
+          { x: 20, y: 80 },
+          { x: 80, y: 70 },
         ].map((node, i) => (
           <circle
             key={i}
             cx={node.x}
             cy={node.y}
-            r="4"
+            r="0.4"
             fill="#00d9ff"
             className="circuit-line"
             style={{ filter: 'drop-shadow(0 0 6px #00d9ff)' }}
@@ -432,20 +556,32 @@ const Login: React.FC = () => {
         </div>
         
 
-        {error && (
+        {displayError && (
           <Alert
-            message={error}
+            message={<span style={{ color: '#ffffff', fontWeight: 500 }}>{displayError}</span>}
             type="error"
             showIcon
             closable
-            onClose={() => dispatch(clearError())}
+            onClose={() => {
+              // 清除定时器
+              if (errorTimerRef.current) {
+                clearTimeout(errorTimerRef.current)
+                errorTimerRef.current = null
+              }
+              setDisplayError(null)
+              dispatch(clearError())
+            }}
             style={{ 
               marginBottom: 24, 
               fontSize: 13,
               borderRadius: 12,
-              border: '1px solid rgba(239, 68, 68, 0.2)',
-              background: 'rgba(254, 242, 242, 0.8)',
+              border: '1px solid rgba(239, 68, 68, 0.5)',
+              background: 'rgba(239, 68, 68, 0.15)',
+              color: '#ffffff',
             }}
+            icon={
+              <span style={{ color: '#ef4444', fontSize: 16 }}>×</span>
+            }
           />
         )}
 
@@ -460,7 +596,21 @@ const Login: React.FC = () => {
           <Form.Item
             label={<span style={{ fontWeight: 600, color: '#ffffff', fontSize: 12, letterSpacing: '0.5px' }}>用户名或邮箱</span>}
             name="username"
-            rules={[{ required: true, message: '请输入用户名或邮箱!' }]}
+            rules={[
+              { required: true, message: '请输入用户名或邮箱!' },
+              { max: 100, message: '用户名长度不能超过100个字符!' },
+              {
+                validator: (_, value) => {
+                  if (!value) {
+                    return Promise.resolve()
+                  }
+                  if (!validateUsername(value)) {
+                    return Promise.reject(new Error('用户名包含非法字符，请检查输入'))
+                  }
+                  return Promise.resolve()
+                },
+              },
+            ]}
             style={{ marginBottom: 16 }}
           >
             <Input
@@ -533,7 +683,22 @@ const Login: React.FC = () => {
           <Form.Item
             label={<span style={{ fontWeight: 600, color: '#ffffff', fontSize: 12, letterSpacing: '0.5px' }}>密码</span>}
             name="password"
-            rules={[{ required: true, message: '请输入密码!' }]}
+            rules={[
+              { required: true, message: '请输入密码!' },
+              { min: 6, message: '密码长度至少6位!' },
+              { max: 72, message: '密码长度不能超过72位!' },
+              {
+                validator: (_, value) => {
+                  if (!value) {
+                    return Promise.resolve()
+                  }
+                  if (!validatePassword(value)) {
+                    return Promise.reject(new Error('密码格式不正确，不能包含危险字符组合'))
+                  }
+                  return Promise.resolve()
+                },
+              },
+            ]}
             style={{ marginBottom: 20 }}
           >
             <Input.Password

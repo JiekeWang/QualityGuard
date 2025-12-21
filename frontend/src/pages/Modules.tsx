@@ -280,13 +280,11 @@ const Modules: React.FC = () => {
         {selectedProject ? (
           <Table
             columns={columns}
-            dataSource={allModules}
+            dataSource={modules}
             rowKey="id"
             loading={loading}
             pagination={false}
-            expandable={{
-              defaultExpandAllRows: true,
-            }}
+            defaultExpandAllRows={true}
           />
         ) : (
           <div style={{ textAlign: 'center', padding: '50px 0', color: '#999' }}>

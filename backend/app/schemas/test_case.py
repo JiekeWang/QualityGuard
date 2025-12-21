@@ -14,6 +14,7 @@ class TestCaseBase(BaseModel):
     project_id: int = Field(..., description="项目ID")
     test_type: TestType = Field(..., description="测试类型")
     module: Optional[str] = Field(None, max_length=100, description="模块")
+    directory_id: Optional[int] = Field(None, description="目录ID")
     status: Optional[str] = Field(default='active', description="状态")
     owner_id: Optional[int] = Field(None, description="负责人ID")
     is_template: Optional[bool] = Field(default=False, description="是否为系统模板")
@@ -39,6 +40,7 @@ class TestCaseUpdate(BaseModel):
     config: Optional[Dict[str, Any]] = None
     tags: Optional[List[str]] = None
     module: Optional[str] = Field(None, max_length=100)
+    directory_id: Optional[int] = None
     status: Optional[str] = None
     owner_id: Optional[int] = None
     project_id: Optional[int] = None

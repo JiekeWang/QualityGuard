@@ -61,4 +61,14 @@ export const reportService = {
     )
     return { content: response.data.content }
   },
+
+  // 删除单个报告
+  async deleteReport(id: number): Promise<void> {
+    await api.delete(`/reports/${id}`)
+  },
+
+  // 批量删除报告
+  async batchDeleteReports(ids: number[]): Promise<void> {
+    await api.delete('/reports/batch', { data: { report_ids: ids } })
+  },
 }

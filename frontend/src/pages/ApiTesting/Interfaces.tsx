@@ -537,9 +537,16 @@ const Interfaces: React.FC = () => {
       }
       
       if (editingInterface) {
-        const updateData: InterfaceUpdate = processedValues
+        const updateData: InterfaceUpdate = {
+          ...processedValues,
+          project_id: values.project_id,
+        }
         await interfaceService.updateInterface(editingInterface.id, updateData)
         message.success('更新成功')
+        // 如果项目发生了变化，需要更新selectedProject状态
+        if (values.project_id && values.project_id !== editingInterface.project_id) {
+          setSelectedProject(values.project_id)
+        }
       } else {
         const createData: InterfaceCreate = {
           ...processedValues,

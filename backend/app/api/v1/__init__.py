@@ -30,6 +30,8 @@ def register_routes():
     import app.api.v1.test_case_reviews as test_case_reviews
     import app.api.v1.environments as environments
     import app.api.v1.data_driver as data_driver
+    import app.api.v1.test_data_configs as test_data_configs
+    import app.api.v1.token_configs as token_configs
     
     # 注册各个模块的路由
     api_router.include_router(auth.router, prefix="/auth", tags=["认证"])
@@ -54,6 +56,8 @@ def register_routes():
     api_router.include_router(data_driver.router, tags=["数据驱动文件导入"])
     api_router.include_router(test_case_reviews.router, prefix="/test-case-reviews", tags=["测试用例评审"])
     api_router.include_router(environments.router, prefix="/environments", tags=["环境管理"])
+    api_router.include_router(test_data_configs.router, prefix="", tags=["测试数据配置"])
+    api_router.include_router(token_configs.router, prefix="", tags=["Token配置"])
 
 # 立即注册路由
 register_routes()

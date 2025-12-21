@@ -476,6 +476,352 @@ h4 {
   font-size: 14px;
 }
 
+/* 侧边栏菜单子菜单显示优化 */
+#sidebar-menu-container .ant-menu-submenu {
+  overflow: visible !important;
+}
+
+/* 一级菜单项（有子菜单的标题） */
+#sidebar-menu-container .ant-menu-submenu > .ant-menu-submenu-title {
+  overflow: visible !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+  padding: 10px 16px !important;
+  text-align: left !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+#sidebar-menu-container .ant-menu-submenu-inline > .ant-menu-submenu-title {
+  overflow: visible !important;
+}
+
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu {
+  overflow: visible !important;
+  max-height: none !important;
+}
+
+/* 一级菜单项（没有子菜单的菜单项） */
+#sidebar-menu-container > .ant-menu > .ant-menu-item {
+  overflow: visible !important;
+  white-space: normal !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+  padding: 10px 16px !important;
+  text-align: left !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* 一级菜单项图标左对齐 */
+#sidebar-menu-container > .ant-menu > .ant-menu-item .ant-menu-item-icon,
+#sidebar-menu-container > .ant-menu > .ant-menu-submenu > .ant-menu-submenu-title .anticon {
+  margin-right: 12px !important;
+  margin-left: 0 !important;
+}
+
+/* ========== 子菜单项统一行间距和垂直居中 ========== */
+/* 强制统一所有子菜单项的行间距，使用固定高度确保完全一致，并使用flex实现垂直居中 */
+#sidebar-menu-container .ant-menu-sub .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu-sub .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item {
+  overflow: visible !important;
+  white-space: normal !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  line-height: 1.4 !important;
+  padding: 0 16px !important;
+  padding-left: 40px !important;
+  margin: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  vertical-align: middle !important;
+}
+
+/* 子菜单项（第一个、最后一个、中间）都使用相同高度和间距 */
+#sidebar-menu-container .ant-menu-sub .ant-menu-item:first-child,
+#sidebar-menu-container .ant-menu-sub .ant-menu-item:last-child,
+#sidebar-menu-container .ant-menu-sub .ant-menu-item:nth-child(n),
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item:first-child,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item:last-child,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item:nth-child(n),
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item:first-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item:last-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item:nth-child(n),
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item:first-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item:last-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item:nth-child(n) {
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 16px !important;
+  padding-left: 40px !important;
+  margin: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  line-height: 1.4 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  vertical-align: middle !important;
+  box-sizing: border-box !important;
+}
+
+/* 子菜单项内的文本容器垂直居中 */
+#sidebar-menu-container .ant-menu-sub .ant-menu-item > *,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item > *,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item > *,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item > * {
+  display: flex !important;
+  align-items: center !important;
+  height: 100% !important;
+  line-height: 1.4 !important;
+}
+
+/* 子菜单中的分隔线 - 统一间距，与子菜单项保持一致 */
+#sidebar-menu-container .ant-menu-sub .ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu .ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item-divider {
+  margin: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  height: 1px !important;
+  padding: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* 分组标题 - 统一行间距，与子菜单项完全一致，垂直居中 */
+#sidebar-menu-container .ant-menu-item-group-title,
+#sidebar-menu-container .ant-menu-sub .ant-menu-item-group-title,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub .ant-menu-item-group-title,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu .ant-menu-item-group-title {
+  overflow: visible !important;
+  white-space: normal !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 16px !important;
+  padding-left: 40px !important;
+  margin: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  vertical-align: middle !important;
+}
+
+/* ========== 子菜单容器 - 彻底移除所有底部留白 ========== */
+/* 所有子菜单容器完全去除底部padding和margin */
+#sidebar-menu-container .ant-menu-sub,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu-submenu-open > .ant-menu,
+#sidebar-menu-container .ant-menu-submenu-inline > .ant-menu {
+  overflow: visible !important;
+  max-height: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  margin-left: 0 !important;
+  margin-right: 0 !important;
+  list-style: none !important;
+  box-sizing: border-box !important;
+}
+
+/* 子菜单容器所有伪元素清除 */
+#sidebar-menu-container .ant-menu-sub::after,
+#sidebar-menu-container .ant-menu-sub::before,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu::after,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu::before,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub::after,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub::before,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu::after,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu::before {
+  content: none !important;
+  display: none !important;
+  height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  line-height: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* 子菜单内所有li元素去除底部留白 */
+#sidebar-menu-container .ant-menu-sub > li,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu > li,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub > li,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu > li {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* 最后一个li元素特别处理 */
+#sidebar-menu-container .ant-menu-sub > li:last-child,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu > li:last-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub > li:last-child,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu > li:last-child {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* 最后一个li元素内的菜单项 */
+#sidebar-menu-container .ant-menu-sub > li:last-child .ant-menu-item,
+#sidebar-menu-container .ant-menu-sub > li:last-child.ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu > li:last-child .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu > li:last-child.ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub > li:last-child .ant-menu-item,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu > li:last-child .ant-menu-item {
+  margin-bottom: 0 !important;
+  height: 32px !important;
+  min-height: 32px !important;
+  max-height: 32px !important;
+  padding: 0 16px !important;
+  padding-left: 40px !important;
+  box-sizing: border-box !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+/* 最后一个分隔线 */
+#sidebar-menu-container .ant-menu-sub > li:last-child.ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-inline .ant-menu > li:last-child.ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu-sub > li:last-child.ant-menu-item-divider,
+#sidebar-menu-container .ant-menu-submenu-open .ant-menu > li:last-child.ant-menu-item-divider {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 6px !important;
+  box-sizing: border-box !important;
+}
+
+/* 子菜单的父容器也要去除底部留白 */
+#sidebar-menu-container .ant-menu-submenu-inline,
+#sidebar-menu-container .ant-menu-submenu {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+#sidebar-menu-container .ant-menu-submenu-open {
+  padding-bottom: 0 !important;
+  margin-bottom: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* 简易侧边栏（collapsed状态）图标紧凑对齐 */
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-item,
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-submenu-title {
+  padding: 6px 0 !important;
+  padding-left: 16px !important;
+  text-align: left !important;
+}
+
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-item-icon,
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-submenu-title .anticon {
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+  font-size: 16px !important;
+}
+
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-submenu-title .ant-menu-submenu-arrow {
+  display: none !important;
+}
+
+/* 确保collapsed状态下图标左侧对齐且紧凑 */
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu {
+  text-align: left !important;
+}
+
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-item,
+.ant-layout-sider-collapsed #sidebar-menu-container .ant-menu-submenu-title {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: flex-start !important;
+  min-height: 36px !important;
+  margin: 2px 0 !important;
+}
+
+/* 侧边栏滚动条样式优化 */
+.sidebar-menu-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sidebar-menu-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 2px;
+}
+
+.sidebar-menu-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  transition: background 0.2s ease;
+}
+
+.sidebar-menu-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+/* Firefox 滚动条样式 */
+.sidebar-menu-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* 确保滚动容器可以正确滚动到底部 */
+#sidebar-menu-container {
+  box-sizing: border-box;
+  position: relative;
+}
+
+/* 确保正常侧边栏可以滚动到底部 */
+.ant-layout-sider:not(.ant-layout-sider-collapsed) #sidebar-menu-container {
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+
+.ant-layout-sider:not(.ant-layout-sider-collapsed) #sidebar-menu-container .ant-menu {
+  padding-bottom: 100px !important;
+  margin-bottom: 0 !important;
+}
+
+/* 覆盖Menu组件内联样式中可能影响子菜单的padding */
+#sidebar-menu-container .ant-menu {
+  padding-top: 8px !important;
+  padding-bottom: 0 !important;
+}
+
+/* 确保Menu组件不会在子菜单容器上添加额外padding */
+#sidebar-menu-container .ant-menu .ant-menu-submenu > .ant-menu {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* 确保最后一个菜单项可以完全显示 */
+.ant-layout-sider:not(.ant-layout-sider-collapsed) #sidebar-menu-container .ant-menu > li:last-child {
+  margin-bottom: 0 !important;
+}
+
 /* 响应式菜单优化 */
 @media (max-width: 768px) {
   .ant-layout-sider {
