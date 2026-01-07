@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { Table, Tag, Button, Space, Modal, Form, Select, message, Card, Tabs, Statistic, Row, Col, Radio, InputNumber, Input, DatePicker, Popconfirm } from 'antd'
 import { PlayCircleOutlined, EyeOutlined, DeleteOutlined } from '@ant-design/icons'
 import { testExecutionService, TestExecution, TestExecutionCreate } from '../store/services/testExecution'
@@ -7,6 +7,8 @@ import { projectService } from '../store/services/project'
 import { testCaseCollectionService, type TestCaseCollection } from '../store/services/testCaseCollection'
 import { environmentService, type Environment } from '../store/services/environment'
 import { tokenConfigService, type TokenConfig } from '../store/services/tokenConfig'
+import { moduleService, Module } from '../store/services/module'
+import { directoryService, Directory } from '../store/services/directory'
 import dayjs from 'dayjs'
 
 const { Option } = Select
@@ -29,7 +31,13 @@ const TestExecutions: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'execute' | 'tasks' | 'monitor' | 'config' | 'reports'>('execute')
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [projectFilter, setProjectFilter] = useState<number | undefined>(undefined)
-  const [targetType, setTargetType] = useState<'single_case' | 'multi_case' | 'collection' | 'tag'>('single_case')
+  const [targetType, setTargetType] = useState<'single_case' | 'multi_case' | 'collection' | 'tag' | 'module' | 'directory' | 'project'>('single_case')
+  const [modules, setModules] = useState<Module[]>([])
+  const [directories, setDirectories] = useState<Directory[]>([])
+  const [selectedModule, setSelectedModule] = useState<string | undefined>()
+  const [selectedDirectory, setSelectedDirectory] = useState<number | undefined>()
+  const [selectedProjectForCases, setSelectedProjectForCases] = useState<number | undefined>() // 按项目选择时的项目ID
+  const [filteredTestCases, setFilteredTestCases] = useState<any[]>([]) // 根据模块/目录/项目筛选后的测试用例
   const [executionMode, setExecutionMode] = useState<'immediate' | 'schedule'>('immediate')
   const [scheduleType, setScheduleType] = useState<'once' | 'daily' | 'weekly' | 'time_range'>('once')
   const [searchText, setSearchText] = useState<string>('')
@@ -61,9 +69,11 @@ const TestExecutions: React.FC = () => {
 
   const loadTestCases = async (projectId: number) => {
     try {
-      const [casesData, collectionsData] = await Promise.all([
+      const [casesData, collectionsData, modulesData, directoriesData] = await Promise.all([
         testCaseService.getTestCases({ project_id: projectId }),
         testCaseCollectionService.getCollections({ project_id: projectId }),
+        moduleService.getModules({ project_id: projectId }),
+        directoryService.getDirectories({ project_id: projectId }),
       ])
 
       if (Array.isArray(casesData)) {
@@ -88,11 +98,88 @@ const TestExecutions: React.FC = () => {
         console.warn('用例集列表数据格式错误，期望数组，实际:', typeof collectionsData, collectionsData)
         setCollections([])
       }
+
+      if (Array.isArray(modulesData)) {
+        setModules(modulesData)
+      } else {
+        console.warn('模块列表数据格式错误，期望数组，实际:', typeof modulesData, modulesData)
+        setModules([])
+      }
+
+      if (Array.isArray(directoriesData)) {
+        setDirectories(directoriesData)
+      } else {
+        console.warn('目录列表数据格式错误，期望数组，实际:', typeof directoriesData, directoriesData)
+        setDirectories([])
+      }
     } catch (error) {
       console.error('加载测试用例列表失败:', error)
       setTestCases([]) // 确保即使出错也有空数组
       setCollections([])
       setCaseTags([])
+      setModules([])
+      setDirectories([])
+    }
+  }
+
+  // 扁平化模块列表
+  const flattenModules = (modules: Module[], prefix: string = ''): Array<{ id: number; name: string; displayName: string }> => {
+    const result: Array<{ id: number; name: string; displayName: string }> = []
+    if (!Array.isArray(modules) || modules.length === 0) {
+      return result
+    }
+    modules.forEach(module => {
+      if (!module || !module.id || !module.name) return
+      const displayName = prefix ? `${prefix} / ${module.name}` : module.name
+      result.push({
+        id: module.id,
+        name: module.name,
+        displayName: displayName
+      })
+      if (module.children && Array.isArray(module.children) && module.children.length > 0) {
+        result.push(...flattenModules(module.children, displayName))
+      }
+    })
+    return result
+  }
+
+  // 扁平化目录列表
+  const flattenDirectories = (directories: Directory[], prefix: string = ''): Array<{ id: number; name: string; displayName: string }> => {
+    const result: Array<{ id: number; name: string; displayName: string }> = []
+    if (!Array.isArray(directories) || directories.length === 0) {
+      return result
+    }
+    directories.forEach(directory => {
+      if (!directory || !directory.id || !directory.name) return
+      const displayName = prefix ? `${prefix} / ${directory.name}` : directory.name
+      result.push({
+        id: directory.id,
+        name: directory.name,
+        displayName: displayName
+      })
+      if (directory.children && Array.isArray(directory.children) && directory.children.length > 0) {
+        result.push(...flattenDirectories(directory.children, displayName))
+      }
+    })
+    return result
+  }
+
+  const flattenedModules = useMemo(() => flattenModules(modules), [modules])
+  const flattenedDirectories = useMemo(() => flattenDirectories(directories), [directories])
+
+  // 加载项目下的测试用例（用于按项目选择）
+  const loadProjectTestCases = async (projectId: number) => {
+    try {
+      const projectCases = await testCaseService.getTestCases({
+        project_id: projectId,
+        limit: 1000
+      })
+      setFilteredTestCases(Array.isArray(projectCases) ? projectCases : [])
+      setSelectedProjectForCases(projectId)
+    } catch (error) {
+      console.error('加载项目测试用例失败:', error)
+      setFilteredTestCases([])
+      setSelectedProjectForCases(undefined)
     }
   }
 
@@ -397,6 +484,78 @@ const TestExecutions: React.FC = () => {
             test_case_id: tc.id,
           })
         })
+      } else if (currentTargetType === 'module') {
+        const moduleName: string | undefined = values.module
+        if (!moduleName) {
+          message.error('请选择模块')
+          return
+        }
+        // 加载该模块下的所有测试用例
+        const moduleCases = await testCaseService.getTestCases({
+          project_id: values.project_id,
+          module: moduleName,
+          limit: 1000
+        })
+        if (Array.isArray(moduleCases)) {
+          moduleCases.forEach((tc: any) => {
+            if (tc && tc.id) {
+              executionsToCreate.push({
+                ...base,
+                test_case_id: tc.id,
+              })
+            }
+          })
+        }
+        if (executionsToCreate.length === 0) {
+          message.warning(`模块 "${moduleName}" 下没有测试用例`)
+          return
+        }
+      } else if (currentTargetType === 'directory') {
+        const directoryId: number | undefined = values.directory_id
+        if (!directoryId) {
+          message.error('请选择目录')
+          return
+        }
+        // 加载该目录下的所有测试用例
+        const directoryCases = await testCaseService.getTestCases({
+          project_id: values.project_id,
+          directory_id: directoryId,
+          limit: 1000
+        })
+        if (Array.isArray(directoryCases)) {
+          directoryCases.forEach((tc: any) => {
+            if (tc && tc.id) {
+              executionsToCreate.push({
+                ...base,
+                test_case_id: tc.id,
+              })
+            }
+          })
+        }
+        if (executionsToCreate.length === 0) {
+          message.warning(`目录下没有测试用例`)
+          return
+        }
+      } else if (currentTargetType === 'project') {
+        // 加载该项目下的所有测试用例
+        const projectCases = await testCaseService.getTestCases({
+          project_id: values.project_id,
+          limit: 1000
+        })
+        if (Array.isArray(projectCases)) {
+          projectCases.forEach((tc: any) => {
+            if (tc && tc.id) {
+              executionsToCreate.push({
+                ...base,
+                test_case_id: tc.id,
+              })
+            }
+          })
+        }
+        if (executionsToCreate.length === 0) {
+          message.warning(`项目下没有测试用例`)
+          return
+        }
       }
 
       if (!executionsToCreate.length) {
@@ -924,9 +1083,15 @@ const TestExecutions: React.FC = () => {
               onChange={(value) => {
                 loadTestCases(value)
                 form.setFieldValue('test_case_id', undefined)
-              form.setFieldValue('test_case_ids', undefined)
-              form.setFieldValue('collection_id', undefined)
-              form.setFieldValue('tag', undefined)
+                form.setFieldValue('test_case_ids', undefined)
+                form.setFieldValue('collection_id', undefined)
+                form.setFieldValue('tag', undefined)
+                form.setFieldValue('module', undefined)
+                form.setFieldValue('directory_id', undefined)
+                setSelectedModule(undefined)
+                setSelectedDirectory(undefined)
+                setSelectedProjectForCases(undefined)
+                setFilteredTestCases([])
               }}
             >
               {Array.isArray(projects) && projects.map(project => (
@@ -940,18 +1105,34 @@ const TestExecutions: React.FC = () => {
             name="target_type"
             label="执行对象类型"
             initialValue="single_case"
+            rules={[{ required: true, message: '请选择执行对象类型' }]}
           >
-            <Radio.Group
+            <Select
               value={targetType}
-              onChange={(e) => setTargetType(e.target.value)}
+              onChange={(value) => {
+                setTargetType(value)
+                // 清空相关字段
+                form.setFieldValue('test_case_id', undefined)
+                form.setFieldValue('test_case_ids', undefined)
+                form.setFieldValue('collection_id', undefined)
+                form.setFieldValue('tag', undefined)
+                form.setFieldValue('module', undefined)
+                form.setFieldValue('directory_id', undefined)
+                setSelectedModule(undefined)
+                setSelectedDirectory(undefined)
+                setSelectedProjectForCases(undefined)
+                setFilteredTestCases([])
+              }}
+              placeholder="请选择执行对象类型"
             >
-              <Space direction="vertical">
-                <Radio value="single_case">单用例执行</Radio>
-                <Radio value="multi_case">多用例选择</Radio>
-                <Radio value="collection">用例集选择</Radio>
-                <Radio value="tag">按标签选择</Radio>
-              </Space>
-            </Radio.Group>
+              <Option value="single_case">单用例执行</Option>
+              <Option value="multi_case">多用例选择</Option>
+              <Option value="collection">用例集选择</Option>
+              <Option value="tag">按标签选择</Option>
+              <Option value="module">按模块选择</Option>
+              <Option value="directory">按目录选择</Option>
+              <Option value="project">按项目选择</Option>
+            </Select>
           </Form.Item>
           {targetType === 'single_case' && (
             <Form.Item
@@ -1019,6 +1200,66 @@ const TestExecutions: React.FC = () => {
                 ))}
               </Select>
             </Form.Item>
+          )}
+
+          {targetType === 'module' && (
+            <Form.Item
+              name="module"
+              label="模块"
+              rules={[{ required: true, message: '请选择模块' }]}
+            >
+              <Select
+                placeholder="请选择模块"
+                value={selectedModule}
+                onChange={(value) => {
+                  setSelectedModule(value)
+                  form.setFieldValue('module', value)
+                }}
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+              >
+                {flattenedModules.map(module => (
+                  <Option key={`module-${module.id}`} value={module.name}>
+                    {module.displayName}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          {targetType === 'directory' && (
+            <Form.Item
+              name="directory_id"
+              label="目录"
+              rules={[{ required: true, message: '请选择目录' }]}
+            >
+              <Select
+                placeholder="请选择目录"
+                value={selectedDirectory}
+                onChange={(value) => {
+                  setSelectedDirectory(value)
+                  form.setFieldValue('directory_id', value)
+                }}
+                showSearch
+                filterOption={(input, option) =>
+                  (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                }
+              >
+                {flattenedDirectories.map(directory => (
+                  <Option key={`directory-${directory.id}`} value={directory.id}>
+                    {directory.displayName}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+          )}
+
+          {targetType === 'project' && (
+            <div style={{ padding: '8px 0', color: '#666', fontSize: '14px' }}>
+              将执行该项目下的所有测试用例
+            </div>
           )}
           <Form.Item 
             name="environment" 

@@ -6,6 +6,7 @@ import zhCN from 'antd/locale/zh_CN'
 import App from './App'
 import { store } from './store'
 import './index.css'
+import './styles/theme-enhancements.css'
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
@@ -23,11 +24,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             colorTextTertiary: '#6b7280',
             colorBorder: '#2d3748',
             colorBorderSecondary: '#1e2329',
-            colorPrimary: '#3b82f6',
+            colorPrimary: '#667eea',
             colorSuccess: '#10b981',
             colorWarning: '#f59e0b',
             colorError: '#ef4444',
-            colorInfo: '#3b82f6',
+            colorInfo: '#667eea',
             borderRadius: 6,
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
             boxShadowSecondary: '0 4px 16px rgba(0, 0, 0, 0.4)',
@@ -62,11 +63,11 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               paddingInline: 10,
               paddingBlock: 4,
               controlHeight: 32,
-              colorText: '#1f2937',
+              colorText: '#e4e7eb',
               colorTextPlaceholder: '#9ca3af',
-              colorBgContainer: '#f9fafb',
-              colorBorder: '#e5e7eb',
-              colorBorderHover: '#667eea',
+              colorBgContainer: 'rgba(15, 20, 25, 0.5)',
+              colorBorder: 'rgba(148, 163, 184, 0.1)',
+              colorBorderHover: 'rgba(102, 126, 234, 0.3)',
               colorPrimaryHover: '#667eea',
               activeBorderColor: '#667eea',
             },
@@ -75,36 +76,38 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               paddingInline: 10,
               paddingBlock: 4,
               controlHeight: 32,
-              colorText: '#1f2937',
+              colorText: '#e4e7eb',
               colorTextPlaceholder: '#9ca3af',
-              colorBgContainer: '#f9fafb',
-              colorBorder: '#e5e7eb',
+              colorBgContainer: 'rgba(15, 20, 25, 0.5)',
+              colorBorder: 'rgba(148, 163, 184, 0.1)',
             },
             TextArea: {
               fontSize: 13,
               paddingInline: 10,
               paddingBlock: 6,
-              colorText: '#1f2937',
+              colorText: '#e4e7eb',
               colorTextPlaceholder: '#9ca3af',
-              colorBgContainer: '#f9fafb',
-              colorBorder: '#e5e7eb',
+              colorBgContainer: 'rgba(15, 20, 25, 0.5)',
+              colorBorder: 'rgba(148, 163, 184, 0.1)',
+              // 确保 rows 属性生效
+              controlHeight: undefined, // 不设置固定高度，让 rows 控制
             },
             Select: {
               fontSize: 13,
               paddingInline: 10,
               paddingBlock: 4,
               controlHeight: 32,
-              // Select 输入框本身的颜色
-              colorText: '#1f2937',
+              // Select 输入框本身的颜色 - 深色主题
+              colorText: '#e4e7eb',
               colorTextPlaceholder: '#9ca3af',
-              colorBgContainer: '#f9fafb',
-              colorBorder: '#e5e7eb',
-              // 下拉框选项的颜色配置（关键！）
-              colorBgElevated: '#ffffff',  // 下拉框背景：白色
-              optionSelectedBg: 'rgba(59, 130, 246, 0.1)',  // 选中项背景：浅蓝色
-              optionActiveBg: 'rgba(59, 130, 246, 0.05)',  // 悬停项背景：更浅的蓝色
-              optionSelectedColor: '#111827',  // 选中项文字：深黑色
-              colorTextQuaternary: '#1f2937',  // 选项文字颜色：深灰色
+              colorBgContainer: 'rgba(15, 20, 25, 0.5)',
+              colorBorder: 'rgba(148, 163, 184, 0.1)',
+              // 下拉框选项的颜色配置 - 深色主题
+              colorBgElevated: '#252b3a',  // 下拉框背景：深色
+              optionSelectedBg: 'rgba(102, 126, 234, 0.2)',  // 选中项背景：浅蓝色
+              optionActiveBg: 'rgba(102, 126, 234, 0.1)',  // 悬停项背景：更浅的蓝色
+              optionSelectedColor: '#e4e7eb',  // 选中项文字：浅色
+              colorTextQuaternary: '#e4e7eb',  // 选项文字颜色：浅色
             },
             Table: {
               fontSize: 13,
@@ -127,6 +130,14 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             Menu: {
               fontSize: 13,
               itemHeight: 40,
+            },
+            Message: {
+              contentBg: '#252b3a',
+              colorText: '#e4e7eb',
+              colorSuccess: '#10b981',
+              colorError: '#ef4444',
+              colorWarning: '#f59e0b',
+              colorInfo: '#667eea',
             },
           },
         }}

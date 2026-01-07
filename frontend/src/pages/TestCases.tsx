@@ -373,34 +373,88 @@ const TestCases: React.FC = () => {
     }
   }
 
-  const handleInterfaceChange = (interfaceId?: number) => {
+  const handleInterfaceChange = async (interfaceId?: number) => {
     form.setFieldValue('interface_id', interfaceId)
     if (!interfaceId) {
-      return
-    }
-    const selectedInterface: Interface | undefined = Array.isArray(interfaces)
-      ? (interfaces as Interface[]).find(i => i && i.id === interfaceId)
-      : undefined
-    if (!selectedInterface) {
+      // 清空请求配置
+      form.setFieldsValue({
+        request_config: '',
+      })
       return
     }
 
+    let selectedInterface: Interface | undefined = Array.isArray(interfaces)
+      ? (interfaces as Interface[]).find(i => i && i.id === interfaceId)
+      : undefined
+
+    // 如果接口列表中没有找到，或者接口数据不完整，尝试获取接口详情
+    if (!selectedInterface || !selectedInterface.headers) {
+      try {
+        console.log('[调试] 获取接口详情，interfaceId:', interfaceId)
+        selectedInterface = await interfaceService.getInterface(interfaceId)
+        console.log('[调试] 接口详情数据:', selectedInterface)
+      } catch (error) {
+        console.error('获取接口详情失败:', error)
+        message.error('获取接口详情失败，无法自动填充请求配置')
+        return
+      }
+    }
+
+    if (!selectedInterface) {
+      console.warn('[调试] 未找到接口，interfaceId:', interfaceId)
+      return
+    }
+
+    // 辅助函数：解析可能是字符串的JSON字段
+    const parseField = (field: any): any => {
+      if (!field) return null
+      if (typeof field === 'string') {
+        try {
+          return JSON.parse(field)
+        } catch (e) {
+          // 如果不是JSON字符串，返回原值
+          return field
+        }
+      }
+      if (typeof field === 'object') {
+        return field
+      }
+      return null
+    }
+
     const requestConfig: any = {}
-    if (selectedInterface.headers && Object.keys(selectedInterface.headers).length > 0) {
-      requestConfig.headers = selectedInterface.headers
+    
+    // 处理 headers
+    const headers = parseField(selectedInterface.headers)
+    if (headers && typeof headers === 'object' && Object.keys(headers).length > 0) {
+      requestConfig.headers = headers
     }
-    if (selectedInterface.query_params && Object.keys(selectedInterface.query_params).length > 0) {
-      requestConfig.params = selectedInterface.query_params
+
+    // 处理 query_params
+    const queryParams = parseField(selectedInterface.query_params)
+    if (queryParams && typeof queryParams === 'object' && Object.keys(queryParams).length > 0) {
+      requestConfig.params = queryParams
     }
-    if (selectedInterface.path_params && Object.keys(selectedInterface.path_params).length > 0) {
-      requestConfig.path_params = selectedInterface.path_params
+
+    // 处理 path_params
+    const pathParams = parseField(selectedInterface.path_params)
+    if (pathParams && typeof pathParams === 'object' && Object.keys(pathParams).length > 0) {
+      requestConfig.path_params = pathParams
     }
-    if (selectedInterface.body_params && Object.keys(selectedInterface.body_params).length > 0) {
-      requestConfig.body = selectedInterface.body_params
+
+    // 处理 body_params
+    const bodyParams = parseField(selectedInterface.body_params)
+    if (bodyParams && typeof bodyParams === 'object' && Object.keys(bodyParams).length > 0) {
+      requestConfig.body = bodyParams
     }
-    if (selectedInterface.form_params && Object.keys(selectedInterface.form_params).length > 0) {
-      requestConfig.form = selectedInterface.form_params
+
+    // 处理 form_params
+    const formParams = parseField(selectedInterface.form_params)
+    if (formParams && typeof formParams === 'object' && Object.keys(formParams).length > 0) {
+      requestConfig.form = formParams
     }
+
+    console.log('[调试] 生成的请求配置:', requestConfig)
 
     // 写回请求配置文本框
     if (Object.keys(requestConfig).length > 0) {
@@ -408,6 +462,9 @@ const TestCases: React.FC = () => {
         request_config: JSON.stringify(requestConfig, null, 2),
       })
       message.success('已根据关联接口自动填充请求配置')
+    } else {
+      console.warn('[调试] 接口没有可用的请求配置数据')
+      message.warning('该接口没有配置请求参数，请手动填写请求配置')
     }
   }
 
@@ -447,15 +504,72 @@ const TestCases: React.FC = () => {
   }
 
   const loadModules = async () => {
-    if (!selectedProject) return
+    if (!selectedProject) {
+      console.log('[模块调试-测试用例] 项目ID为空，清空模块列表')
+      setModules([])
+      return
+    }
     try {
+      console.log('[模块调试-测试用例] 开始加载模块，项目ID:', selectedProject)
       const data = await moduleService.getModules({ project_id: selectedProject })
+      console.log('[模块调试-测试用例] 后端返回的模块数据:', data)
+      console.log('[模块调试-测试用例] 模块数据类型:', Array.isArray(data) ? '数组' : typeof data)
+      console.log('[模块调试-测试用例] 模块数量:', Array.isArray(data) ? data.length : 0)
+      if (Array.isArray(data) && data.length > 0) {
+        console.log('[模块调试-测试用例] 第一个模块:', data[0])
+        if (data[0].children) {
+          console.log('[模块调试-测试用例] 第一个模块的子模块:', data[0].children)
+        }
+      }
       setModules(Array.isArray(data) ? data : [])
     } catch (error) {
-      console.error('加载模块列表失败:', error)
+      console.error('[模块调试-测试用例] 加载模块列表失败:', error)
       setModules([])
     }
   }
+
+  // 扁平化树形结构的模块，用于下拉框显示
+  const flattenModules = (modules: Module[], prefix: string = '', depth: number = 0): Array<{ id: number; name: string; displayName: string }> => {
+    const result: Array<{ id: number; name: string; displayName: string }> = []
+    if (!Array.isArray(modules) || modules.length === 0) {
+      return result
+    }
+    modules.forEach(module => {
+      if (!module || !module.id || !module.name) {
+        console.warn('[模块调试-测试用例] 跳过无效模块:', module)
+        return
+      }
+      const displayName = prefix ? `${prefix} / ${module.name}` : module.name
+      result.push({
+        id: module.id,
+        name: module.name,
+        displayName: displayName
+      })
+      // 递归处理子模块
+      if (module.children && Array.isArray(module.children) && module.children.length > 0) {
+        console.log(`[模块调试-测试用例] 处理模块 "${module.name}" 的子模块，数量: ${module.children.length}`, module.children)
+        const childModules = flattenModules(module.children, displayName, depth + 1)
+        console.log(`[模块调试-测试用例] 模块 "${module.name}" 扁平化后的子模块数量: ${childModules.length}`)
+        result.push(...childModules)
+      } else {
+        console.log(`[模块调试-测试用例] 模块 "${module.name}" 没有子模块或子模块为空`)
+      }
+    })
+    return result
+  }
+
+  // 使用 useMemo 优化扁平化模块列表
+  const flattenedModules = useMemo(() => {
+    console.log('[模块调试-测试用例] 开始扁平化模块，原始模块数据:', modules)
+    console.log('[模块调试-测试用例] 原始模块数量:', Array.isArray(modules) ? modules.length : 0)
+    const result = flattenModules(modules)
+    console.log('[模块调试-测试用例] 扁平化后的模块列表:', result)
+    console.log('[模块调试-测试用例] 扁平化后的模块数量:', result.length)
+    if (result.length > 0) {
+      console.log('[模块调试-测试用例] 扁平化后的前3个模块:', result.slice(0, 3))
+    }
+    return result
+  }, [modules])
 
   const loadDataSources = async () => {
     if (!selectedProject) return
@@ -1987,13 +2101,17 @@ const TestCases: React.FC = () => {
                 (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {Array.isArray(modules) ? modules.map(module => (
-                module && (
-                  <Option key={module.id} value={module.name}>
-                    {module.name}
+              {flattenedModules.length > 0 ? (
+                flattenedModules.map(module => (
+                  <Option key={`module-${module.id}`} value={module.name}>
+                    {module.displayName}
                   </Option>
-                )
-              )).filter(Boolean) : []}
+                ))
+              ) : (
+                <Option disabled value="">
+                  暂无模块数据
+                </Option>
+              )}
             </Select>
             <Select
               placeholder="选择目录"
@@ -2169,13 +2287,17 @@ const TestCases: React.FC = () => {
                         (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
                       }
                     >
-                      {Array.isArray(modules) ? modules.map(module => (
-                        module && (
-                          <Option key={module.id} value={module.name}>
-                            {module.name}
+                      {flattenedModules.length > 0 ? (
+                        flattenedModules.map(module => (
+                          <Option key={`module-${module.id}`} value={module.name}>
+                            {module.displayName}
                           </Option>
-                        )
-                      )).filter(Boolean) : []}
+                        ))
+                      ) : (
+                        <Option disabled value="">
+                          暂无模块数据
+                        </Option>
+                      )}
                     </Select>
                   </Form.Item>
                   <Form.Item name="directory_id" label="目录">
@@ -2256,9 +2378,9 @@ const TestCases: React.FC = () => {
                   </Form.Item>
                   
                   {isDataDriven && (
-                    <div style={{ marginTop: 24, padding: 16, background: '#f0f9ff', borderRadius: 6, border: '1px solid #bae6fd' }}>
-                      <h4 style={{ marginTop: 0, marginBottom: 12, color: '#0c4a6e' }}>关联测试数据配置</h4>
-                      <p style={{ margin: '0 0 12px 0', color: '#0c4a6e', fontSize: 13 }}>
+                    <div style={{ marginTop: 24, padding: 16, background: 'rgba(102, 126, 234, 0.1)', borderRadius: 6, border: '1px solid rgba(102, 126, 234, 0.3)' }}>
+                      <h4 style={{ marginTop: 0, marginBottom: 12, color: '#e4e7eb', fontWeight: 'bold' }}>关联测试数据配置</h4>
+                      <p style={{ margin: '0 0 12px 0', color: '#cbd5e1', fontSize: 13 }}>
                         选择已创建的测试数据配置，系统会自动使用配置中的数据执行测试。配置可在"数据驱动配置" → "测试数据配置"中管理。
                       </p>
                       <Form.Item 
@@ -2267,7 +2389,7 @@ const TestCases: React.FC = () => {
                       >
                         <Select
                           mode="multiple"
-                          placeholder="选择测试数据配置"
+                          placeholder="选择测试数据配置（可搜索名称、描述）"
                           loading={loadingConfigs}
                           value={associatedConfigs.map(c => c.id)}
                           onChange={async (configIds: number[]) => {
@@ -2314,35 +2436,53 @@ const TestCases: React.FC = () => {
                           }}
                           style={{ width: '100%' }}
                           showSearch
-                          filterOption={(input, option) =>
-                            (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
-                          }
+                          filterOption={(input, option) => {
+                            // 获取选项对应的配置数据
+                            const configId = option?.value as number
+                            const config = testDataConfigs.find(c => c.id === configId)
+                            
+                            if (!config) return false
+                            
+                            // 模糊搜索：配置名称、描述、数据条数
+                            const searchText = input.toLowerCase().trim()
+                            const nameMatch = config.name?.toLowerCase().includes(searchText) || false
+                            const descMatch = config.description?.toLowerCase().includes(searchText) || false
+                            const dataCountMatch = String(config.data_count || 0).includes(searchText) || false
+                            
+                            return nameMatch || descMatch || dataCountMatch
+                          }}
+                          optionFilterProp="children"
                         >
                           {testDataConfigs
                             .filter(config => config.is_active)
                             .map(config => (
                               <Option key={config.id} value={config.id}>
-                                {config.name} ({config.data_count} 条数据)
+                                {config.name} ({config.data_count || 0} 条数据)
+                                {config.description && (
+                                  <span style={{ color: '#9ca3af', fontSize: '12px', marginLeft: '8px' }}>
+                                    - {config.description}
+                                  </span>
+                                )}
                               </Option>
                             ))}
                         </Select>
                       </Form.Item>
                       {associatedConfigs.length > 0 && (
                         <div style={{ marginTop: 12 }}>
-                          <div style={{ marginBottom: 8, color: '#0c4a6e', fontWeight: 'bold' }}>已关联的配置：</div>
+                          <div style={{ marginBottom: 8, color: '#e4e7eb', fontWeight: 'bold' }}>已关联的配置：</div>
                           {associatedConfigs.map(config => (
                             <div key={config.id} style={{ 
                               marginBottom: 8, 
                               padding: '8px 12px', 
-                              background: '#fff', 
+                              background: 'rgba(37, 43, 58, 0.8)', 
                               borderRadius: 4,
-                              border: '1px solid #d1d5db'
+                              border: '1px solid rgba(148, 163, 184, 0.2)'
                             }}>
-                              <div style={{ fontWeight: 'bold', color: '#111827' }}>{config.name}</div>
+                              <div style={{ fontWeight: 'bold', color: '#e4e7eb' }}>{config.name}</div>
                               {config.description && (
-                                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{config.description}</div>
+                                <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>{config.description}</div>
                               )}
-                              <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                              <div style={{ fontSize: 12, color: '#9ca3af', marginTop: 4 }}>
                                 数据行数: {config.data?.length || 0}
                               </div>
                             </div>
@@ -2967,13 +3107,17 @@ const TestCases: React.FC = () => {
                 (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {Array.isArray(modules) ? modules.map(module => (
-                module && (
-                  <Option key={module.id} value={module.name}>
-                    {module.name}
+              {flattenedModules.length > 0 ? (
+                flattenedModules.map(module => (
+                  <Option key={`module-${module.id}`} value={module.name}>
+                    {module.displayName}
                   </Option>
-                )
-              )).filter(Boolean) : []}
+                ))
+              ) : (
+                <Option disabled value="">
+                  暂无模块数据
+                </Option>
+              )}
             </Select>
           </Form.Item>
           <Form.Item name="target_directory_id" label="目标目录（可选）">
@@ -3040,13 +3184,17 @@ const TestCases: React.FC = () => {
                 (option?.children as unknown as string)?.toLowerCase().includes(input.toLowerCase())
               }
             >
-              {Array.isArray(modules) ? modules.map(module => (
-                module && (
-                  <Option key={module.id} value={module.name}>
-                    {module.name}
+              {flattenedModules.length > 0 ? (
+                flattenedModules.map(module => (
+                  <Option key={`module-${module.id}`} value={module.name}>
+                    {module.displayName}
                   </Option>
-                )
-              )).filter(Boolean) : []}
+                ))
+              ) : (
+                <Option disabled value="">
+                  暂无模块数据
+                </Option>
+              )}
             </Select>
           </Form.Item>
           <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 4, marginTop: 16, color: '#1f2937' }}>

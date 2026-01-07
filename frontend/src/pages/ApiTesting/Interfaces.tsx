@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Card, Button, Table, Space, Input, Tag, Modal, Form, Select, message, Popconfirm, Tabs, InputNumber, Dropdown } from 'antd'
 import { PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined, CopyOutlined, MoreOutlined, ImportOutlined } from '@ant-design/icons'
 import type { MenuProps } from 'antd'
 import { interfaceService, Interface, InterfaceCreate, InterfaceUpdate } from '../../store/services/interface'
 import { projectService } from '../../store/services/project'
+import { moduleService, Module } from '../../store/services/module'
 
 const { Option } = Select
 const { TextArea } = Input
@@ -17,6 +18,7 @@ const Interfaces: React.FC = () => {
   const [editingInterface, setEditingInterface] = useState<Interface | null>(null)
   const [form] = Form.useForm()
   const [projects, setProjects] = useState<any[]>([])
+  const [modules, setModules] = useState<Module[]>([])
   const [curlImportVisible, setCurlImportVisible] = useState(false)
   const [curlCommand, setCurlCommand] = useState('')
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
@@ -38,6 +40,74 @@ const Interfaces: React.FC = () => {
       console.error('加载项目列表失败:', error)
     }
   }
+
+  const loadModules = async (projectId?: number) => {
+    try {
+      if (projectId) {
+        console.log('[模块调试] 开始加载模块，项目ID:', projectId)
+        const data = await moduleService.getModules({ project_id: projectId })
+        console.log('[模块调试] 后端返回的模块数据:', data)
+        console.log('[模块调试] 模块数据类型:', Array.isArray(data) ? '数组' : typeof data)
+        console.log('[模块调试] 模块数量:', Array.isArray(data) ? data.length : 0)
+        if (Array.isArray(data) && data.length > 0) {
+          console.log('[模块调试] 第一个模块:', data[0])
+          if (data[0].children) {
+            console.log('[模块调试] 第一个模块的子模块:', data[0].children)
+          }
+        }
+        setModules(Array.isArray(data) ? data : [])
+      } else {
+        console.log('[模块调试] 项目ID为空，清空模块列表')
+        setModules([])
+      }
+    } catch (error) {
+      console.error('[模块调试] 加载模块列表失败:', error)
+      setModules([])
+    }
+  }
+
+  // 扁平化树形结构的模块，用于下拉框显示
+  const flattenModules = (modules: Module[], prefix: string = '', depth: number = 0): Array<{ id: number; name: string; displayName: string }> => {
+    const result: Array<{ id: number; name: string; displayName: string }> = []
+    if (!Array.isArray(modules) || modules.length === 0) {
+      return result
+    }
+    modules.forEach(module => {
+      if (!module || !module.id || !module.name) {
+        console.warn('跳过无效模块:', module)
+        return
+      }
+      const displayName = prefix ? `${prefix} / ${module.name}` : module.name
+      result.push({
+        id: module.id,
+        name: module.name,
+        displayName: displayName
+      })
+      // 递归处理子模块
+      if (module.children && Array.isArray(module.children) && module.children.length > 0) {
+        console.log(`[模块调试] 处理模块 "${module.name}" 的子模块，数量: ${module.children.length}`, module.children)
+        const childModules = flattenModules(module.children, displayName, depth + 1)
+        console.log(`[模块调试] 模块 "${module.name}" 扁平化后的子模块数量: ${childModules.length}`)
+        result.push(...childModules)
+      } else {
+        console.log(`[模块调试] 模块 "${module.name}" 没有子模块或子模块为空`)
+      }
+    })
+    return result
+  }
+
+  // 使用 useMemo 优化扁平化模块列表
+  const flattenedModules = useMemo(() => {
+    console.log('[模块调试] 开始扁平化模块，原始模块数据:', modules)
+    console.log('[模块调试] 原始模块数量:', Array.isArray(modules) ? modules.length : 0)
+    const result = flattenModules(modules)
+    console.log('[模块调试] 扁平化后的模块列表:', result)
+    console.log('[模块调试] 扁平化后的模块数量:', result.length)
+    if (result.length > 0) {
+      console.log('[模块调试] 扁平化后的前3个模块:', result.slice(0, 3))
+    }
+    return result
+  }, [modules])
 
   const loadInterfaces = async () => {
     try {
@@ -64,28 +134,79 @@ const Interfaces: React.FC = () => {
     setModalVisible(true)
   }
 
-  const handleEdit = (record: Interface) => {
+  const handleEdit = async (record: Interface) => {
     setEditingInterface(record)
+    // 加载该项目的模块列表
+    if (record.project_id) {
+      await loadModules(record.project_id)
+    }
+
+    // 如果接口数据可能不完整（列表返回的数据可能缺少详细信息），尝试获取完整详情
+    let interfaceData = record
+    if (!record.headers && !record.query_params && !record.body_params) {
+      try {
+        console.log('[调试] 接口列表数据可能不完整，获取接口详情，ID:', record.id)
+        interfaceData = await interfaceService.getInterface(record.id)
+        console.log('[调试] 获取到的接口详情:', interfaceData)
+      } catch (error) {
+        console.error('获取接口详情失败，使用列表数据:', error)
+        // 如果获取失败，继续使用列表数据
+      }
+    }
+
+    // 辅助函数：将字段转换为JSON字符串，处理各种情况
+    const formatJsonField = (field: any): string => {
+      if (!field) return ''
+      // 如果已经是字符串，尝试解析后再格式化
+      if (typeof field === 'string') {
+        try {
+          const parsed = JSON.parse(field)
+          // 如果是空对象或空数组，返回空字符串
+          if (typeof parsed === 'object' && parsed !== null) {
+            if (Array.isArray(parsed) && parsed.length === 0) return ''
+            if (Object.keys(parsed).length === 0) return ''
+          }
+          return JSON.stringify(parsed, null, 2)
+        } catch (e) {
+          // 如果不是JSON字符串，返回原值
+          return field
+        }
+      }
+      // 如果是对象或数组
+      if (typeof field === 'object' && field !== null) {
+        // 如果是空对象或空数组，返回空字符串
+        if (Array.isArray(field) && field.length === 0) return ''
+        if (Object.keys(field).length === 0) return ''
+        return JSON.stringify(field, null, 2)
+      }
+      return ''
+    }
+
+    console.log('[调试] 编辑接口，使用的数据:', interfaceData)
+    console.log('[调试] headers:', interfaceData.headers, '类型:', typeof interfaceData.headers)
+    console.log('[调试] query_params:', interfaceData.query_params, '类型:', typeof interfaceData.query_params)
+    console.log('[调试] body_params:', interfaceData.body_params, '类型:', typeof interfaceData.body_params)
+
     form.setFieldsValue({
-      name: record.name,
-      method: record.method,
-      path: record.path,
-      description: record.description,
-      project_id: record.project_id,
-      status: record.status,
-      module: record.module,
-      tags: record.tags || [],
-      headers: record.headers ? JSON.stringify(record.headers, null, 2) : '',
-      query_params: record.query_params ? JSON.stringify(record.query_params, null, 2) : '',
-      path_params: record.path_params ? JSON.stringify(record.path_params, null, 2) : '',
-      body_params: record.body_params ? JSON.stringify(record.body_params, null, 2) : '',
-      form_params: record.form_params ? JSON.stringify(record.form_params, null, 2) : '',
-      response_schema: record.response_schema ? JSON.stringify(record.response_schema, null, 2) : '',
-      response_example: record.response_example ? JSON.stringify(record.response_example, null, 2) : '',
-      timeout: record.timeout || 30,
-      retry_strategy: record.retry_strategy ? JSON.stringify(record.retry_strategy, null, 2) : '',
-      pre_script: record.pre_script || '',
-      post_script: record.post_script || '',
+      name: interfaceData.name,
+      method: interfaceData.method,
+      path: interfaceData.path,
+      description: interfaceData.description || '',
+      project_id: interfaceData.project_id,
+      status: interfaceData.status,
+      module: interfaceData.module || '',
+      tags: interfaceData.tags || [],
+      headers: formatJsonField(interfaceData.headers),
+      query_params: formatJsonField(interfaceData.query_params),
+      path_params: formatJsonField(interfaceData.path_params),
+      body_params: formatJsonField(interfaceData.body_params),
+      form_params: formatJsonField(interfaceData.form_params),
+      response_schema: formatJsonField(interfaceData.response_schema),
+      response_example: formatJsonField(interfaceData.response_example),
+      timeout: interfaceData.timeout || 30,
+      retry_strategy: formatJsonField(interfaceData.retry_strategy),
+      pre_script: interfaceData.pre_script || '',
+      post_script: interfaceData.post_script || '',
     })
     setModalVisible(true)
   }
@@ -764,18 +885,30 @@ const Interfaces: React.FC = () => {
             setCurlImportVisible(false)
             setCurlCommand('')
           }}
-          width={700}
+          width={900}
           okText="导入"
           cancelText="取消"
+          style={{ top: 50 }}
+          bodyStyle={{ 
+            minHeight: '500px',
+            maxHeight: '75vh',
+            padding: '24px',
+            overflowY: 'auto'
+          }}
         >
           <div style={{ marginBottom: 16 }}>
-            <p>请粘贴CURL命令，系统将自动解析并填充接口信息：</p>
+            <p style={{ marginBottom: 12 }}>请粘贴CURL命令，系统将自动解析并填充接口信息：</p>
             <TextArea
-              rows={10}
+              rows={25}
               placeholder={'例如: curl -X POST "https://api.example.com/users" -H "Content-Type: application/json" -d \'{"name":"test"}\''}
               value={curlCommand}
               onChange={(e) => setCurlCommand(e.target.value)}
-              style={{ fontFamily: 'monospace' }}
+              style={{ 
+                fontFamily: 'monospace', 
+                resize: 'vertical',
+                minHeight: '400px',
+                fontSize: '13px'
+              }}
             />
           </div>
         </Modal>
@@ -831,7 +964,14 @@ const Interfaces: React.FC = () => {
                     label="项目"
                     rules={[{ required: true, message: '请选择项目' }]}
                   >
-                    <Select placeholder="请选择项目">
+                    <Select 
+                      placeholder="请选择项目"
+                      onChange={(value) => {
+                        loadModules(value)
+                        // 切换项目时清空模块选择
+                        form.setFieldsValue({ module: undefined })
+                      }}
+                    >
                       {projects.map(project => (
                         <Option key={project.id} value={project.id}>
                           {project.name}
@@ -850,7 +990,26 @@ const Interfaces: React.FC = () => {
                     </Select>
                   </Form.Item>
                   <Form.Item name="module" label="模块">
-                    <Input placeholder="请输入模块名称" />
+                    <Select 
+                      placeholder="请选择模块"
+                      allowClear
+                      showSearch
+                      filterOption={(input, option) =>
+                        (option?.children as string)?.toLowerCase().includes(input.toLowerCase())
+                      }
+                    >
+                      {flattenedModules.length > 0 ? (
+                        flattenedModules.map(module => (
+                          <Option key={`module-${module.id}`} value={module.name}>
+                            {module.displayName}
+                          </Option>
+                        ))
+                      ) : (
+                        <Option disabled value="">
+                          暂无模块数据
+                        </Option>
+                      )}
+                    </Select>
                   </Form.Item>
                   <Form.Item name="tags" label="标签">
                     <Select mode="tags" placeholder="输入标签后按回车" />
@@ -871,7 +1030,12 @@ const Interfaces: React.FC = () => {
                     <TextArea 
                       rows={6} 
                       placeholder='{"Content-Type": "application/json"}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '120px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -882,7 +1046,12 @@ const Interfaces: React.FC = () => {
                     <TextArea 
                       rows={6} 
                       placeholder='{"page": 1, "size": 10}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '120px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -893,7 +1062,12 @@ const Interfaces: React.FC = () => {
                     <TextArea 
                       rows={6} 
                       placeholder='{"id": "{userId}"}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '120px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -902,9 +1076,14 @@ const Interfaces: React.FC = () => {
                     tooltip='JSON格式，例如: {"name": "string", "age": 18}'
                   >
                     <TextArea 
-                      rows={6} 
+                      rows={8} 
                       placeholder='{"name": "string", "age": 18}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '160px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -915,7 +1094,12 @@ const Interfaces: React.FC = () => {
                     <TextArea 
                       rows={6} 
                       placeholder='{"username": "admin", "password": "123456"}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '120px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                 </>
@@ -932,9 +1116,14 @@ const Interfaces: React.FC = () => {
                     tooltip="JSON格式，定义响应数据结构"
                   >
                     <TextArea 
-                      rows={8} 
+                      rows={10} 
                       placeholder='{"type": "object", "properties": {"code": {"type": "number"}, "message": {"type": "string"}}}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '200px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -943,9 +1132,14 @@ const Interfaces: React.FC = () => {
                     tooltip="JSON格式，示例响应数据"
                   >
                     <TextArea 
-                      rows={8} 
+                      rows={10} 
                       placeholder='{"code": 200, "message": "success", "data": {}}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '200px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                 </>
@@ -971,7 +1165,12 @@ const Interfaces: React.FC = () => {
                     <TextArea 
                       rows={6} 
                       placeholder='{"max_retries": 3, "retry_delay": 1000}' 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '120px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -980,9 +1179,14 @@ const Interfaces: React.FC = () => {
                     tooltip="执行请求前运行的脚本"
                   >
                     <TextArea 
-                      rows={6} 
+                      rows={8} 
                       placeholder="// 前置脚本示例&#10;console.log('执行前置脚本');" 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '160px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                   <Form.Item 
@@ -991,9 +1195,14 @@ const Interfaces: React.FC = () => {
                     tooltip="执行请求后运行的脚本"
                   >
                     <TextArea 
-                      rows={6} 
+                      rows={8} 
                       placeholder="// 后置脚本示例&#10;console.log('执行后置脚本');" 
-                      style={{ fontFamily: 'monospace' }}
+                      style={{ 
+                        fontFamily: 'monospace', 
+                        resize: 'vertical',
+                        minHeight: '160px',
+                        height: 'auto'
+                      }}
                     />
                   </Form.Item>
                 </>

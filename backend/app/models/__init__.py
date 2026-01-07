@@ -19,6 +19,8 @@ from app.models.environment import Environment
 from app.models.test_case_review import TestCaseReview, ReviewComment, ReviewStatus
 from app.models.test_data_config import TestDataConfig, TestCaseTestDataConfig
 from app.models.token_config import TokenConfig
+from app.models.page_object import PageObject, PageObjectStatus
+from app.models.ui_element import UIElement, LocatorType, ElementType
 
 __all__ = [
     "User",
@@ -50,5 +52,10 @@ __all__ = [
     "TestDataConfig",
     "TestCaseTestDataConfig",
     "TokenConfig",
+    "PageObject",
+    "PageObjectStatus",
+    "UIElement",
+    "LocatorType",
+    "ElementType",
 ]
 

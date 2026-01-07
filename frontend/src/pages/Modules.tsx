@@ -20,9 +20,11 @@ import {
   DeleteOutlined,
   FolderOutlined,
   FolderOpenOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { moduleService, Module, ModuleCreate, ModuleUpdate } from '../store/services/module'
 import { projectService, Project } from '../store/services/project'
+import { testCaseService } from '../store/services/testCase'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -35,6 +37,11 @@ const Modules: React.FC = () => {
   const [editingModule, setEditingModule] = useState<Module | null>(null)
   const [selectedProject, setSelectedProject] = useState<number | undefined>()
   const [form] = Form.useForm()
+  const [moduleTestCases, setModuleTestCases] = useState<Map<number, number>>(new Map()) // 模块ID -> 测试用例数量
+  const [previewVisible, setPreviewVisible] = useState(false)
+  const [previewModule, setPreviewModule] = useState<Module | null>(null)
+  const [previewTestCases, setPreviewTestCases] = useState<any[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   useEffect(() => {
     loadProjects()
@@ -64,10 +71,59 @@ const Modules: React.FC = () => {
       setLoading(true)
       const data = await moduleService.getModules({ project_id: selectedProject })
       setModules(Array.isArray(data) ? data : [])
+      
+      // 加载每个模块的测试用例数量
+      await loadModuleTestCases(Array.isArray(data) ? data : [])
     } catch (error: any) {
       message.error('加载模块列表失败: ' + (error.response?.data?.detail || error.message))
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 加载模块关联的测试用例数量
+  const loadModuleTestCases = async (modules: Module[]) => {
+    if (!selectedProject || !modules.length) return
+    
+    try {
+      const testCasesMap = new Map<number, number>()
+      
+      // 获取所有模块（包括子模块）及其名称映射
+      const getAllModulesWithNames = (ms: Module[]): Array<{ id: number; name: string }> => {
+        const result: Array<{ id: number; name: string }> = []
+        const traverse = (m: Module) => {
+          result.push({ id: m.id, name: m.name })
+          if (m.children && m.children.length > 0) {
+            m.children.forEach(traverse)
+          }
+        }
+        ms.forEach(traverse)
+        return result
+      }
+      
+      const allModules = getAllModulesWithNames(modules)
+      
+      // 为每个模块查询测试用例数量
+      await Promise.all(
+        allModules.map(async ({ id, name }) => {
+          try {
+            const testCases = await testCaseService.getTestCases({
+              project_id: selectedProject,
+              module: name,
+              limit: 1000
+            })
+            if (Array.isArray(testCases)) {
+              testCasesMap.set(id, testCases.length)
+            }
+          } catch (error) {
+            console.error(`加载模块 ${name} 的测试用例失败:`, error)
+          }
+        })
+      )
+      
+      setModuleTestCases(testCasesMap)
+    } catch (error) {
+      console.error('加载模块测试用例数量失败:', error)
     }
   }
 
@@ -98,6 +154,55 @@ const Modules: React.FC = () => {
       loadModules()
     } catch (error: any) {
       message.error('删除失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handlePreviewTestCases = async (module: Module) => {
+    if (!selectedProject) {
+      message.warning('请先选择项目')
+      return
+    }
+    setPreviewModule(module)
+    setPreviewVisible(true)
+    setPreviewLoading(true)
+    try {
+      // 获取该模块及其所有子模块的名称
+      const getAllModuleNames = (m: Module): string[] => {
+        const names = [m.name]
+        if (m.children && m.children.length > 0) {
+          m.children.forEach(child => {
+            names.push(...getAllModuleNames(child))
+          })
+        }
+        return names
+      }
+      const moduleNames = getAllModuleNames(module)
+      
+      // 查询所有模块下的测试用例
+      const allTestCases: any[] = []
+      await Promise.all(
+        moduleNames.map(async (moduleName) => {
+          try {
+            const testCases = await testCaseService.getTestCases({
+              project_id: selectedProject,
+              module: moduleName,
+              limit: 1000
+            })
+            if (Array.isArray(testCases)) {
+              allTestCases.push(...testCases)
+            }
+          } catch (error) {
+            console.error(`加载模块 ${moduleName} 的测试用例失败:`, error)
+          }
+        })
+      )
+      
+      setPreviewTestCases(allTestCases)
+    } catch (error: any) {
+      message.error('加载测试用例失败: ' + (error.response?.data?.detail || error.message))
+      setPreviewTestCases([])
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -215,34 +320,58 @@ const Modules: React.FC = () => {
       ),
     },
     {
+      title: '关联用例',
+      key: 'test_cases',
+      width: 120,
+      render: (_: any, record: Module) => {
+        const count = moduleTestCases.get(record.id) || 0
+        return (
+          <Tag color={count > 0 ? 'blue' : 'default'}>
+            {count} 个用例
+          </Tag>
+        )
+      },
+    },
+    {
       title: '操作',
       key: 'action',
-      width: 200,
-      render: (_: any, record: Module) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定要删除这个模块吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
+      width: 250,
+      render: (_: any, record: Module) => {
+        const testCaseCount = moduleTestCases.get(record.id) || 0
+        return (
+          <Space>
             <Button
               type="link"
-              danger
-              icon={<DeleteOutlined />}
+              icon={<EyeOutlined />}
+              onClick={() => handlePreviewTestCases(record)}
+              disabled={testCaseCount === 0}
             >
-              删除
+              预览用例 ({testCaseCount})
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+            <Popconfirm
+              title="确定要删除这个模块吗？"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -349,6 +478,58 @@ const Modules: React.FC = () => {
             <Switch checkedChildren="激活" unCheckedChildren="已归档" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`模块 "${previewModule?.name}" 的测试用例`}
+        open={previewVisible}
+        onCancel={() => {
+          setPreviewVisible(false)
+          setPreviewModule(null)
+          setPreviewTestCases([])
+        }}
+        footer={null}
+        width={800}
+      >
+        <Table
+          columns={[
+            {
+              title: '用例名称',
+              dataIndex: 'name',
+              key: 'name',
+            },
+            {
+              title: '测试类型',
+              dataIndex: 'test_type',
+              key: 'test_type',
+              render: (type: string) => <Tag>{type}</Tag>,
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              key: 'status',
+              render: (status: string) => (
+                <Tag color={status === 'active' ? 'green' : 'default'}>
+                  {status === 'active' ? '活跃' : status || '未知'}
+                </Tag>
+              ),
+            },
+            {
+              title: '创建时间',
+              dataIndex: 'created_at',
+              key: 'created_at',
+              render: (date: string) => date ? new Date(date).toLocaleString() : '-',
+            },
+          ]}
+          dataSource={previewTestCases}
+          rowKey="id"
+          loading={previewLoading}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 个测试用例`,
+          }}
+        />
       </Modal>
     </div>
   )

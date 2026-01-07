@@ -57,7 +57,8 @@ function App() {
                       {/* 其他功能 */}
                       <Route path="/quick-test" element={<QuickTest />} />
                       <Route path="/performance" element={<Performance />} />
-                      <Route path="/ui-automation" element={<UIAutomation />} />
+                      {/* UI自动化模块 */}
+                      <Route path="/ui-automation/*" element={<UIAutomation />} />
                       <Route path="/settings" element={<Settings />} />
                       <Route path="/settings/environments" element={<Environments />} />
                       <Route path="/settings/token-configs" element={<TokenConfigs />} />

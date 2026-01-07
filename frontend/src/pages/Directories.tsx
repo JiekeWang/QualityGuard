@@ -19,9 +19,11 @@ import {
   DeleteOutlined,
   FolderOutlined,
   FolderOpenOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { directoryService, Directory, DirectoryCreate, DirectoryUpdate } from '../store/services/directory'
 import { projectService, Project } from '../store/services/project'
+import { testCaseService } from '../store/services/testCase'
 
 const { TextArea } = Input
 const { Option } = Select
@@ -34,6 +36,11 @@ const Directories: React.FC = () => {
   const [editingDirectory, setEditingDirectory] = useState<Directory | null>(null)
   const [selectedProject, setSelectedProject] = useState<number | undefined>()
   const [form] = Form.useForm()
+  const [directoryTestCases, setDirectoryTestCases] = useState<Map<number, number>>(new Map()) // 目录ID -> 测试用例数量
+  const [previewVisible, setPreviewVisible] = useState(false)
+  const [previewDirectory, setPreviewDirectory] = useState<Directory | null>(null)
+  const [previewTestCases, setPreviewTestCases] = useState<any[]>([])
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   useEffect(() => {
     loadProjects()
@@ -63,10 +70,59 @@ const Directories: React.FC = () => {
       setLoading(true)
       const data = await directoryService.getDirectories({ project_id: selectedProject })
       setDirectories(Array.isArray(data) ? data : [])
+      
+      // 加载每个目录的测试用例数量
+      await loadDirectoryTestCases(Array.isArray(data) ? data : [])
     } catch (error: any) {
       message.error('加载目录列表失败: ' + (error.response?.data?.detail || error.message))
     } finally {
       setLoading(false)
+    }
+  }
+
+  // 加载目录关联的测试用例数量
+  const loadDirectoryTestCases = async (directories: Directory[]) => {
+    if (!selectedProject || !directories.length) return
+    
+    try {
+      const testCasesMap = new Map<number, number>()
+      
+      // 获取所有目录ID（包括子目录）
+      const getAllDirectoryIds = (dirs: Directory[]): number[] => {
+        const ids: number[] = []
+        const traverse = (d: Directory) => {
+          ids.push(d.id)
+          if (d.children && d.children.length > 0) {
+            d.children.forEach(traverse)
+          }
+        }
+        dirs.forEach(traverse)
+        return ids
+      }
+      
+      const directoryIds = getAllDirectoryIds(directories)
+      
+      // 为每个目录查询测试用例数量
+      await Promise.all(
+        directoryIds.map(async (directoryId) => {
+          try {
+            const testCases = await testCaseService.getTestCases({
+              project_id: selectedProject,
+              directory_id: directoryId,
+              limit: 1000
+            })
+            if (Array.isArray(testCases)) {
+              testCasesMap.set(directoryId, testCases.length)
+            }
+          } catch (error) {
+            console.error(`加载目录 ${directoryId} 的测试用例失败:`, error)
+          }
+        })
+      )
+      
+      setDirectoryTestCases(testCasesMap)
+    } catch (error) {
+      console.error('加载目录测试用例数量失败:', error)
     }
   }
 
@@ -97,6 +153,55 @@ const Directories: React.FC = () => {
       loadDirectories()
     } catch (error: any) {
       message.error('删除失败: ' + (error.response?.data?.detail || error.message))
+    }
+  }
+
+  const handlePreviewTestCases = async (directory: Directory) => {
+    if (!selectedProject) {
+      message.warning('请先选择项目')
+      return
+    }
+    setPreviewDirectory(directory)
+    setPreviewVisible(true)
+    setPreviewLoading(true)
+    try {
+      // 获取该目录及其所有子目录的ID
+      const getAllDirectoryIds = (d: Directory): number[] => {
+        const ids = [d.id]
+        if (d.children && d.children.length > 0) {
+          d.children.forEach(child => {
+            ids.push(...getAllDirectoryIds(child))
+          })
+        }
+        return ids
+      }
+      const directoryIds = getAllDirectoryIds(directory)
+      
+      // 查询所有目录下的测试用例
+      const allTestCases: any[] = []
+      await Promise.all(
+        directoryIds.map(async (directoryId) => {
+          try {
+            const testCases = await testCaseService.getTestCases({
+              project_id: selectedProject,
+              directory_id: directoryId,
+              limit: 1000
+            })
+            if (Array.isArray(testCases)) {
+              allTestCases.push(...testCases)
+            }
+          } catch (error) {
+            console.error(`加载目录 ${directoryId} 的测试用例失败:`, error)
+          }
+        })
+      )
+      
+      setPreviewTestCases(allTestCases)
+    } catch (error: any) {
+      message.error('加载测试用例失败: ' + (error.response?.data?.detail || error.message))
+      setPreviewTestCases([])
+    } finally {
+      setPreviewLoading(false)
     }
   }
 
@@ -176,34 +281,58 @@ const Directories: React.FC = () => {
       ),
     },
     {
+      title: '关联用例',
+      key: 'test_cases',
+      width: 120,
+      render: (_: any, record: Directory) => {
+        const count = directoryTestCases.get(record.id) || 0
+        return (
+          <Tag color={count > 0 ? 'blue' : 'default'}>
+            {count} 个用例
+          </Tag>
+        )
+      },
+    },
+    {
       title: '操作',
       key: 'action',
-      width: 200,
-      render: (_: any, record: Directory) => (
-        <Space>
-          <Button
-            type="link"
-            icon={<EditOutlined />}
-            onClick={() => handleEdit(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定要删除这个目录吗？"
-            onConfirm={() => handleDelete(record.id)}
-            okText="确定"
-            cancelText="取消"
-          >
+      width: 250,
+      render: (_: any, record: Directory) => {
+        const testCaseCount = directoryTestCases.get(record.id) || 0
+        return (
+          <Space>
             <Button
               type="link"
-              danger
-              icon={<DeleteOutlined />}
+              icon={<EyeOutlined />}
+              onClick={() => handlePreviewTestCases(record)}
+              disabled={testCaseCount === 0}
             >
-              删除
+              预览用例 ({testCaseCount})
             </Button>
-          </Popconfirm>
-        </Space>
-      ),
+            <Button
+              type="link"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
+            <Popconfirm
+              title="确定要删除这个目录吗？"
+              onConfirm={() => handleDelete(record.id)}
+              okText="确定"
+              cancelText="取消"
+            >
+              <Button
+                type="link"
+                danger
+                icon={<DeleteOutlined />}
+              >
+                删除
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
+      },
     },
   ]
 
@@ -310,6 +439,58 @@ const Directories: React.FC = () => {
             <Switch checkedChildren="激活" unCheckedChildren="已归档" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={`目录 "${previewDirectory?.name}" 的测试用例`}
+        open={previewVisible}
+        onCancel={() => {
+          setPreviewVisible(false)
+          setPreviewDirectory(null)
+          setPreviewTestCases([])
+        }}
+        footer={null}
+        width={800}
+      >
+        <Table
+          columns={[
+            {
+              title: '用例名称',
+              dataIndex: 'name',
+              key: 'name',
+            },
+            {
+              title: '测试类型',
+              dataIndex: 'test_type',
+              key: 'test_type',
+              render: (type: string) => <Tag>{type}</Tag>,
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              key: 'status',
+              render: (status: string) => (
+                <Tag color={status === 'active' ? 'green' : 'default'}>
+                  {status === 'active' ? '活跃' : status || '未知'}
+                </Tag>
+              ),
+            },
+            {
+              title: '创建时间',
+              dataIndex: 'created_at',
+              key: 'created_at',
+              render: (date: string) => date ? new Date(date).toLocaleString() : '-',
+            },
+          ]}
+          dataSource={previewTestCases}
+          rowKey="id"
+          loading={previewLoading}
+          pagination={{
+            pageSize: 10,
+            showSizeChanger: true,
+            showTotal: (total) => `共 ${total} 个测试用例`,
+          }}
+        />
       </Modal>
     </div>
   )

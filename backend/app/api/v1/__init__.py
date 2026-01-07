@@ -32,6 +32,9 @@ def register_routes():
     import app.api.v1.data_driver as data_driver
     import app.api.v1.test_data_configs as test_data_configs
     import app.api.v1.token_configs as token_configs
+    import app.api.v1.page_objects as page_objects
+    import app.api.v1.ui_elements as ui_elements
+    import app.api.v1.ui_recording as ui_recording
     
     # 注册各个模块的路由
     api_router.include_router(auth.router, prefix="/auth", tags=["认证"])
@@ -58,6 +61,9 @@ def register_routes():
     api_router.include_router(environments.router, prefix="/environments", tags=["环境管理"])
     api_router.include_router(test_data_configs.router, prefix="", tags=["测试数据配置"])
     api_router.include_router(token_configs.router, prefix="", tags=["Token配置"])
+    api_router.include_router(page_objects.router, prefix="/page-objects", tags=["页面对象管理"])
+    api_router.include_router(ui_elements.router, prefix="/ui-elements", tags=["UI元素管理"])
+    api_router.include_router(ui_recording.router, prefix="/ui-recording", tags=["UI录制"])
 
 # 立即注册路由
 register_routes()

@@ -213,6 +213,31 @@ const AppLayout: React.FC<AppLayoutProps> = ({ children }) => {
       key: '/ui-automation',
       icon: <RobotOutlined />,
       label: 'UI自动化',
+      children: [
+        {
+          key: '/ui-automation/page-objects',
+          label: '页面对象库',
+        },
+        {
+          key: '/ui-automation/test-cases',
+          label: 'UI测试用例',
+        },
+        {
+          key: '/ui-automation/recording',
+          label: '录制回放',
+        },
+        {
+          type: 'divider' as const,
+        },
+        {
+          key: '/ui-automation/test-executions',
+          label: '测试执行',
+        },
+        {
+          key: '/ui-automation/reports',
+          label: '测试报告',
+        },
+      ],
     },
     {
       key: '/settings',

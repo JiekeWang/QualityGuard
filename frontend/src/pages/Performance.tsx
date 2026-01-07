@@ -17,7 +17,7 @@ const Performance: React.FC = () => {
             <div>
               <p style={{ fontSize: 16, marginBottom: 8 }}>功能开发中</p>
               <p style={{ color: '#666', marginBottom: 16 }}>
-                预计上线时间: Q2 2024
+                预计上线时间: Q2 2026
               </p>
               <div style={{ textAlign: 'left', maxWidth: 500, margin: '0 auto' }}>
                 <p><strong>主要功能规划：</strong></p>

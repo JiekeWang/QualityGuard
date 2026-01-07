@@ -4,6 +4,27 @@
   box-sizing: border-box;
 }
 
+/* 移除所有元素的默认outline，使用自定义样式 */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: 2px solid #667eea;
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* 输入框特殊处理 - 使用border和box-shadow替代outline */
+.ant-input:focus,
+.ant-input:focus-visible,
+.ant-input-affix-wrapper:focus,
+.ant-input-affix-wrapper:focus-visible,
+.ant-input-affix-wrapper .ant-input:focus,
+.ant-input-affix-wrapper .ant-input:focus-visible {
+  outline: none !important;
+}
+
 html {
   font-size: 14px;
   height: 100%;
@@ -226,14 +247,42 @@ body {
   border-radius: 2px !important;
 }
 
-/* 输入框文字颜色 - 确保清晰可见 */
+/* 输入框文字颜色 - 深色主题下使用浅色文字 */
 .ant-input,
 .ant-input-password .ant-input,
 .ant-input-number,
 .ant-input-number-input,
 textarea.ant-input {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
   font-weight: 500 !important;
+}
+
+/* 搜索框文字颜色 - 确保清晰可见 */
+.ant-input-search .ant-input {
+  color: #e4e7eb !important;
+  background-color: transparent !important;
+}
+
+.ant-input-search .ant-input::placeholder {
+  color: #9ca3af !important;
+  opacity: 1 !important;
+}
+
+/* 搜索框搜索按钮样式 */
+.ant-input-search .ant-input-search-button {
+  background-color: #667eea !important;
+  border-color: #667eea !important;
+  color: #ffffff !important;
+}
+
+.ant-input-search .ant-input-search-button:hover {
+  background-color: #7c8ef0 !important;
+  border-color: #7c8ef0 !important;
+  color: #ffffff !important;
+}
+
+.ant-input-search .ant-input-search-button .anticon {
+  color: #ffffff !important;
 }
 
 .ant-input::placeholder,
@@ -246,11 +295,13 @@ textarea.ant-input::placeholder {
 
 /* 输入框聚焦样式 */
 .ant-input:focus,
-.ant-input-focused {
+.ant-input-focused,
+.ant-input:focus-visible {
   border-color: #667eea !important;
   box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1) !important;
-  background-color: #ffffff !important;
-  color: #111827 !important;
+  background-color: rgba(15, 20, 25, 0.7) !important;
+  color: #e4e7eb !important;
+  outline: none !important;
 }
 
 .ant-input-password:focus,
@@ -261,19 +312,19 @@ textarea.ant-input::placeholder {
 }
 
 .ant-input-password .ant-input {
-  background-color: #f9fafb !important;
-  color: #1f2937 !important;
+  background-color: rgba(15, 20, 25, 0.5) !important;
+  color: #e4e7eb !important;
 }
 
 .ant-input-password .ant-input:focus {
-  background-color: #ffffff !important;
-  color: #111827 !important;
+  background-color: rgba(15, 20, 25, 0.7) !important;
+  color: #e4e7eb !important;
 }
 
-/* Select 下拉框文字颜色 */
+/* Select 下拉框文字颜色 - 深色主题 */
 .ant-select-selector {
-  color: #1f2937 !important;
-  background-color: #f9fafb !important;
+  color: #e4e7eb !important;
+  background-color: rgba(15, 20, 25, 0.5) !important;
 }
 
 .ant-select-selection-placeholder {
@@ -281,51 +332,67 @@ textarea.ant-input::placeholder {
 }
 
 .ant-select-selection-item {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
   font-weight: 500 !important;
+  background-color: rgba(102, 126, 234, 0.2) !important;
+  border-color: rgba(102, 126, 234, 0.3) !important;
+}
+
+/* 多选 Select 中的 Tag 标签文字颜色 */
+.ant-select-selection-item-content {
+  color: #e4e7eb !important;
+}
+
+.ant-select-selection-item-remove {
+  color: #e4e7eb !important;
+}
+
+.ant-select-selection-item-remove:hover {
+  color: #ffffff !important;
 }
 
 .ant-select-selection-search-input {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
 }
 
-/* Select 下拉选项文字颜色 - 增强版 */
+/* Select 下拉选项文字颜色 - 深色主题增强版 */
 .ant-select-dropdown,
 div[class*="ant-select-dropdown"] {
-  background-color: #ffffff !important;
+  background-color: #252b3a !important;
+  border: 1px solid rgba(148, 163, 184, 0.1) !important;
 }
 
 .ant-select-item,
 .ant-select-item-option,
 div[class*="ant-select-item"],
 div[class*="ant-select-item-option"] {
-  color: #1f2937 !important;
-  background-color: #ffffff !important;
+  color: #e4e7eb !important;
+  background-color: #252b3a !important;
 }
 
 .ant-select-item-option-content,
 div[class*="ant-select-item-option-content"],
 span[class*="ant-select-item-option-content"] {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
 }
 
 .ant-select-item-option-selected,
 div[class*="ant-select-item-option-selected"] {
-  background-color: rgba(59, 130, 246, 0.1) !important;
-  color: #111827 !important;
+  background-color: rgba(102, 126, 234, 0.2) !important;
+  color: #e4e7eb !important;
   font-weight: 500 !important;
 }
 
 .ant-select-item-option-active,
 div[class*="ant-select-item-option-active"] {
-  background-color: rgba(59, 130, 246, 0.05) !important;
-  color: #111827 !important;
+  background-color: rgba(102, 126, 234, 0.1) !important;
+  color: #e4e7eb !important;
 }
 
 .ant-select-item-option-selected .ant-select-item-option-content,
 div[class*="ant-select-item-option-selected"] div[class*="ant-select-item-option-content"],
 div[class*="ant-select-item-option-selected"] span[class*="ant-select-item-option-content"] {
-  color: #111827 !important;
+  color: #e4e7eb !important;
   font-weight: 500 !important;
 }
 
@@ -333,27 +400,27 @@ div[class*="ant-select-item-option-selected"] span[class*="ant-select-item-optio
 .ant-select-dropdown .ant-select-item,
 .ant-select-dropdown .ant-select-item-option,
 .ant-select-dropdown .ant-select-item-option-content {
-  color: #1f2937 !important;
-  -webkit-text-fill-color: #1f2937 !important;
+  color: #e4e7eb !important;
+  -webkit-text-fill-color: #e4e7eb !important;
 }
 
-/* TextArea 文字颜色 */
+/* TextArea 文字颜色 - 深色主题 */
 .ant-input[type="textarea"],
 textarea.ant-input {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
 }
 
 textarea.ant-input:focus {
-  color: #111827 !important;
+  color: #e4e7eb !important;
 }
 
-/* InputNumber 文字颜色 */
+/* InputNumber 文字颜色 - 深色主题 */
 .ant-input-number-input {
-  color: #1f2937 !important;
+  color: #e4e7eb !important;
 }
 
 .ant-input-number-input:focus {
-  color: #111827 !important;
+  color: #e4e7eb !important;
 }
 
 /* Form 标签文字颜色 */

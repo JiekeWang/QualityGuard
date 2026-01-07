@@ -11,7 +11,7 @@ import httpx
 import copy
 import asyncio
 
-from app.core.database import get_db
+from app.core.database import get_db, AsyncSessionLocal
 from app.core.dependencies import get_current_active_user
 from app.models.test_execution import TestExecution, ExecutionStatus
 from app.models.test_data_config import TestDataConfig, TestCaseTestDataConfig
@@ -20,6 +20,7 @@ from app.models.environment import Environment
 from app.schemas.test_execution import TestExecutionCreate, TestExecutionResponse
 from app.services.report_service import ReportService
 from pydantic import BaseModel
+from sqlalchemy import select
 
 
 class BatchDeleteExecutionRequest(BaseModel):
@@ -104,7 +105,9 @@ async def _execute_single_data_driven_test(
     lines: List[str],
     extractors_cfg: Optional[List[Dict[str, Any]]] = None,
     variable_pool: Optional[Dict[str, Any]] = None,
-    token_config: Optional[Dict[str, Any]] = None
+    token_config: Optional[Dict[str, Any]] = None,
+    token_lock: Optional[asyncio.Lock] = None,
+    skip_token_check: bool = False  # 是否跳过Token检查（并发执行前已统一获取时使用）
 ) -> Dict[str, Any]:
     """执行单个数据驱动测试
     
@@ -125,11 +128,12 @@ async def _execute_single_data_driven_test(
     import asyncio
     
     # 如果配置了 token_config 且变量池中没有 token，先获取 token
-    lines.append(f"[调试] token_config 检查: {token_config is not None}, variable_pool: {variable_pool is not None}")
-    if token_config:
-        import json
-        lines.append(f"[调试] token_config 内容: {json.dumps(token_config, ensure_ascii=False)}")
-    if token_config and variable_pool is not None:
+    # 在并发执行时，如果已经在执行前统一获取了Token，则跳过检查
+    if not skip_token_check:
+        lines.append(f"[调试] token_config 检查: {token_config is not None}, variable_pool: {variable_pool is not None}")
+        if token_config:
+            lines.append(f"[调试] token_config 内容: {json.dumps(token_config, ensure_ascii=False)}")
+    if token_config and variable_pool is not None and not skip_token_check:
         # 检查是否需要获取 token（如果变量池中没有 token 名称对应的变量）
         extractors = token_config.get("extractors", [])
         lines.append(f"[调试] extractors: {extractors}")
@@ -137,13 +141,29 @@ async def _execute_single_data_driven_test(
             token_name = extractors[0].get("name", "token")
             lines.append(f"[调试] token_name: {token_name}, variable_pool 中是否有: {token_name in variable_pool}")
             # 如果变量池中没有 token，先获取
+            # 在并发执行时，使用锁保护Token获取，避免多个任务同时获取
             if token_name not in variable_pool:
-                lines.append(f"\n🔑 首次获取 Token ({token_name})...")
-                success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
-                if success:
-                    lines.append(f"✓ {message}")
+                if token_lock:
+                    # 并发执行模式：使用锁保护
+                    async with token_lock:
+                        # 再次检查，可能其他任务已经获取了Token
+                        if token_name not in variable_pool:
+                            lines.append(f"\n🔑 首次获取 Token ({token_name})...")
+                            success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                            if success:
+                                lines.append(f"✓ {message}")
+                            else:
+                                lines.append(f"⚠ {message}（将在请求失败时重试）")
+                        else:
+                            lines.append(f"[调试] Token ({token_name}) 已被其他任务获取")
                 else:
-                    lines.append(f"⚠ {message}（将在请求失败时重试）")
+                    # 串行执行模式：直接获取
+                    lines.append(f"\n🔑 首次获取 Token ({token_name})...")
+                    success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                    if success:
+                        lines.append(f"✓ {message}")
+                    else:
+                        lines.append(f"⚠ {message}（将在请求失败时重试）")
             else:
                 lines.append(f"[调试] Token ({token_name}) 已存在于变量池中")
         else:
@@ -391,6 +411,8 @@ async def _execute_single_data_driven_test(
                         url = re.sub(r'\$\{(\w+)\}', replacer, url)
                 
                 method = (request_info.get("method") or "GET").upper()
+                # 记录请求信息（仅在并发执行时，避免日志过多）
+                lines.append(f"\n[数据 {data_index}] 发送 {method} 请求: {url}")
                 if method in ("GET", "DELETE"):
                     resp = await client.request(method, url, headers=headers, params=params)
                 else:
@@ -400,6 +422,7 @@ async def _execute_single_data_driven_test(
                 
                 http_status = resp.status_code
                 response_text = resp.text
+                lines.append(f"[数据 {data_index}] 响应状态码: {http_status}")
                 
                 try:
                     response_json = resp.json()
@@ -455,13 +478,16 @@ async def _execute_single_data_driven_test(
         )
         if not assertions_passed:
             error_message = "断言失败"
+            lines.append(f"[数据 {data_index}] 断言失败，详情: {json.dumps(assertion_results, ensure_ascii=False)}")
     else:
         if error_message:
             assertions_passed = False
+            lines.append(f"[数据 {data_index}] 执行失败: {error_message}")
         else:
             assertions_passed = True
     
     step_status = "passed" if (assertions_passed and not error_message) else "failed"
+    lines.append(f"[数据 {data_index}] 执行结果: {step_status}")
     
     return {
         "data_index": data_index,
@@ -1704,14 +1730,23 @@ def _evaluate_assertions(
             actual = _extract_json_path(response_json, path)
 
             if operator == "equal":
-                passed = actual == expected
+                # 如果expected是字符串且actual是对象/数组，使用智能匹配
+                if isinstance(expected, str) and isinstance(actual, (dict, list)):
+                    passed = _smart_match(actual, expected)
+                else:
+                    passed = actual == expected
             elif operator == "not_equal":
                 passed = actual != expected
             elif operator == "contains":
                 if isinstance(actual, (list, str)):
                     passed = expected in actual
+                elif isinstance(actual, (dict, list)):
+                    # 如果actual是对象或数组，将其转换为JSON字符串后检查是否包含expected
+                    actual_str = json.dumps(actual, ensure_ascii=False, separators=(',', ':'))
+                    passed = str(expected) in actual_str
                 else:
-                    passed = False
+                    # 其他类型转换为字符串后检查
+                    passed = str(expected) in str(actual)
             elif operator == "not_contains":
                 if isinstance(actual, (list, str)):
                     passed = expected not in actual
@@ -1753,6 +1788,7 @@ def _evaluate_assertions(
             expected_raw = item.get("expected")
             expected = replace_vars_in_assertion(expected_raw)
             operator = item.get("operator") or "equal"
+            message = ""  # 初始化message变量
             
             # 类型转换
             if isinstance(expected, str):
@@ -1771,21 +1807,73 @@ def _evaluate_assertions(
             
             actual = _extract_json_path(response_json, path)
             
+            # 如果路径不存在，尝试递归搜索字段
+            if actual is None:
+                # 提取字段名（去掉路径前缀）
+                path_key = path.replace("$.", "").split(".")[-1] if path.startswith("$.") else path.split(".")[-1]
+                
+                # 尝试递归搜索字段（去掉下划线前缀，因为可能是字段名格式问题）
+                search_keys = [path_key]
+                if path_key.startswith("_"):
+                    search_keys.append(path_key[1:])  # 去掉下划线前缀
+                if not path_key.startswith("_"):
+                    search_keys.append(f"_{path_key}")  # 添加下划线前缀
+                
+                found_value = None
+                found_key = None
+                for search_key in search_keys:
+                    found_value = _find_field_in_response(response_json, search_key)
+                    if found_value is not None:
+                        found_key = search_key
+                        break
+                
+                if found_value is not None:
+                    # 找到了字段，使用找到的值进行断言
+                    actual = found_value
+                    message = f"路径 {path} 不存在，但通过递归搜索找到字段 '{found_key}'，使用该值进行断言"
+                else:
+                    # 未找到字段，提供调试信息
+                    available_keys = []
+                    if isinstance(response_json, dict):
+                        available_keys = list(response_json.keys())
+                        # 尝试查找类似的字段名
+                        similar_keys = [k for k in available_keys if path_key.lower() in k.lower() or k.lower() in path_key.lower()]
+                        # 如果 ItemResultDict 存在，显示其内部字段
+                        item_result_info = ""
+                        if "ItemResultDict" in response_json and isinstance(response_json["ItemResultDict"], dict):
+                            item_keys = list(response_json["ItemResultDict"].keys())
+                            item_result_info = f" ItemResultDict内部字段: {item_keys[:10]}"
+                        
+                        if similar_keys:
+                            message = f"路径 {path} 不存在。响应顶层可用字段: {available_keys[:10]}{item_result_info} 类似字段: {similar_keys}"
+                        else:
+                            message = f"路径 {path} 不存在。响应顶层可用字段: {available_keys[:20]}{item_result_info}"
+                    else:
+                        message = f"路径 {path} 不存在。响应类型: {type(response_json).__name__}"
+            
             if operator == "equal":
-                passed = actual == expected
+                # 如果expected是字符串且actual是对象/数组，使用智能匹配
+                if isinstance(expected, str) and isinstance(actual, (dict, list)):
+                    passed = _smart_match(actual, expected)
+                else:
+                    passed = actual == expected
             elif operator == "contains":
                 if isinstance(actual, (list, str)):
                     passed = expected in actual
-                elif isinstance(actual, dict):
-                    # 如果actual是对象，检查expected字符串是否在JSON序列化后的结果中
-                    actual_str = json.dumps(actual, ensure_ascii=False)
+                elif isinstance(actual, (dict, list)):
+                    # 如果actual是对象或数组，将其转换为JSON字符串后检查是否包含expected
+                    actual_str = json.dumps(actual, ensure_ascii=False, separators=(',', ':'))
                     passed = str(expected) in actual_str
                 else:
-                    passed = False
+                    passed = str(expected) in str(actual)
             else:
-                passed = actual == expected
+                # 其他运算符，如果expected是字符串且actual是对象/数组，使用智能匹配
+                if isinstance(expected, str) and isinstance(actual, (dict, list)):
+                    passed = _smart_match(actual, expected)
+                else:
+                    passed = actual == expected
             
-            if not passed:
+            if not passed and not message:
                 message = f"路径 {path} 断言失败，期望 {expected}，实际值为 {actual!r}"
             
             results.append(
@@ -2075,7 +2163,7 @@ async def create_test_execution(
 async def _execute_pending_test_execution(execution: TestExecution, db: AsyncSession):
     """执行已创建的测试执行（用于定时任务调度器）"""
     # 获取测试用例
-    from app.models.test_case import TestCase
+    from app.models.test_case import TestCase, TestType
     case_result = await db.execute(select(TestCase).where(TestCase.id == execution.test_case_id))
     test_case = case_result.scalar_one_or_none()
     if not test_case:
@@ -2083,6 +2171,12 @@ async def _execute_pending_test_execution(execution: TestExecution, db: AsyncSes
         execution.logs = "测试用例不存在"
         execution.finished_at = datetime.utcnow()
         await db.commit()
+        return
+    
+    # 如果是UI类型，使用UI引擎执行
+    if test_case.test_type == TestType.UI:
+        from app.api.v1.test_executions_ui import _execute_ui_test_case
+        await _execute_ui_test_case(execution, test_case, db)
         return
     
     # 获取项目
@@ -2233,10 +2327,32 @@ async def _execute_pending_test_execution(execution: TestExecution, db: AsyncSes
         lines.append(f"总数据量: {len(test_data_list)}，并发数: {concurrency_limit}")
         lines.append("")
         
+        # 在并发执行开始前，先统一获取Token（如果配置了token_config）
+        # 这样可以避免多个任务同时尝试获取Token导致的竞态条件
+        token_pre_fetched = False  # 标记是否已在执行前统一获取Token
+        if token_config and variable_pool is not None:
+            extractors = token_config.get("extractors", [])
+            if extractors:
+                token_name = extractors[0].get("name", "token")
+                if token_name not in variable_pool:
+                    lines.append(f"\n🔑 并发执行前统一获取 Token ({token_name})...")
+                    success, message = await _refresh_token(token_config, base_url, variable_pool, lines)
+                    if success:
+                        lines.append(f"✓ {message}")
+                        token_pre_fetched = True  # Token已成功获取
+                    else:
+                        lines.append(f"⚠ {message}（将在请求失败时重试）")
+                        # Token获取失败，不跳过检查，让每个任务在需要时重试
+                else:
+                    lines.append(f"[调试] Token ({token_name}) 已存在于变量池中，无需重新获取")
+                    token_pre_fetched = True  # Token已存在
+        
         # 使用asyncio.gather进行并发执行，但限制并发数
         import asyncio
         semaphore = asyncio.Semaphore(concurrency_limit)
         completed_count = 0
+        progress_lock = asyncio.Lock()  # 用于保护进度更新的锁
+        token_lock = asyncio.Lock()  # 用于保护Token获取的锁（作为备用保护）
         
         async def execute_with_limit_and_progress(test_data: Dict[str, Any], index: int):
             nonlocal completed_count
@@ -2250,16 +2366,34 @@ async def _execute_pending_test_execution(execution: TestExecution, db: AsyncSes
                     lines=lines,
                     extractors_cfg=extractors_cfg,
                     variable_pool=variable_pool,
-                    token_config=token_config
+                    token_config=token_config,
+                    token_lock=token_lock,  # 传递Token获取锁
+                    skip_token_check=token_pre_fetched  # 如果已在执行前统一获取Token，则跳过检查
                 )
-                completed_count += 1
                 
-                # 更新进度（每完成5%更新一次，避免频繁更新）
-                if completed_count % max(1, len(test_data_list) // 20) == 0 or completed_count == len(test_data_list):
-                    progress_percent = int((completed_count / len(test_data_list)) * 100)
-                    # 更新执行记录的日志（包含进度）
-                    execution.logs = "\n".join(lines) + f"\n\n进度: {completed_count}/{len(test_data_list)} ({progress_percent}%)"
-                    await db.commit()
+                # 使用锁保护计数和进度更新
+                async with progress_lock:
+                    completed_count += 1
+                    
+                    # 更新进度（每完成5%更新一次，避免频繁更新）
+                    if completed_count % max(1, len(test_data_list) // 20) == 0 or completed_count == len(test_data_list):
+                        progress_percent = int((completed_count / len(test_data_list)) * 100)
+                        # 使用独立的数据库会话更新进度，避免事务冲突
+                        async with AsyncSessionLocal() as progress_db:
+                            try:
+                                # 重新查询执行记录
+                                result_obj = await progress_db.execute(
+                                    select(TestExecution).where(TestExecution.id == execution.id)
+                                )
+                                execution_obj = result_obj.scalar_one()
+                                
+                                # 更新日志
+                                execution_obj.logs = "\n".join(lines) + f"\n\n进度: {completed_count}/{len(test_data_list)} ({progress_percent}%)"
+                                await progress_db.commit()
+                            except Exception as e:
+                                # 如果更新失败，记录错误但不影响测试执行
+                                lines.append(f"[警告] 更新进度失败: {str(e)}")
+                                await progress_db.rollback()
                 
                 return result
         
